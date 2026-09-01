@@ -253,30 +253,54 @@
     });
 }
 
+- (CGImageRef)canonicalRGBAImageFromCGImage:(CGImageRef)source {
+    if (!source) return NULL;
+
+    size_t width = CGImageGetWidth(source);
+    size_t height = CGImageGetHeight(source);
+    if (width == 0 || height == 0 || width > 4096 || height > 4096) return NULL;
+
+    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
+    if (!colorSpace) return NULL;
+
+    CGContextRef ctx = CGBitmapContextCreate(NULL, width, height, 8, width * 4, colorSpace,
+                                              kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(colorSpace);
+    if (!ctx) return NULL;
+
+    CGContextSetBlendMode(ctx, kCGBlendModeCopy);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), source);
+    CGImageRef result = CGBitmapContextCreateImage(ctx);
+    CGContextRelease(ctx);
+    return result;
+}
+
 - (UIImage *)imageByLimitingLongestSide:(UIImage *)img to:(CGFloat)maxSide {
     CGImageRef sourceCG = img.CGImage;
     if (!sourceCG) return nil;
 
-    // UIImage.size la points; Vision co the nhan anh Retina thanh anh rat lon.
-    // Luon tinh theo pixel va xuat scale=1.0, tao anh RGBA tieu chuan.
-    CGFloat pixelWidth = (CGFloat)CGImageGetWidth(sourceCG);
-    CGFloat pixelHeight = (CGFloat)CGImageGetHeight(sourceCG);
-    CGFloat longest = MAX(pixelWidth, pixelHeight);
-    CGFloat factor = (longest > maxSide) ? (maxSide / longest) : 1.0;
-    CGSize newSize = CGSizeMake(MAX(1.0, floor(pixelWidth * factor)),
-                                MAX(1.0, floor(pixelHeight * factor)));
+    size_t pixelWidth = CGImageGetWidth(sourceCG);
+    size_t pixelHeight = CGImageGetHeight(sourceCG);
+    size_t longest = MAX(pixelWidth, pixelHeight);
+    CGFloat factor = (longest > (size_t)maxSide) ? (maxSide / (CGFloat)longest) : 1.0;
+    size_t newWidth = MAX((size_t)1, (size_t)floor(pixelWidth * factor));
+    size_t newHeight = MAX((size_t)1, (size_t)floor(pixelHeight * factor));
 
-    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
-    CGContextRef ctx = UIGraphicsGetCurrentContext();
-    if (!ctx) {
-        UIGraphicsEndImageContext();
-        return nil;
-    }
-    [[UIColor clearColor] setFill];
-    CGContextFillRect(ctx, CGRectMake(0, 0, newSize.width, newSize.height));
-    [img drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
-    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
+    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
+    CGContextRef ctx = CGBitmapContextCreate(NULL, newWidth, newHeight, 8, newWidth * 4, cs,
+                                               kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
+    CGColorSpaceRelease(cs);
+    if (!ctx) return nil;
+
+    CGContextSetInterpolationQuality(ctx, kCGInterpolationLow);
+    CGContextSetBlendMode(ctx, kCGBlendModeCopy);
+    CGContextDrawImage(ctx, CGRectMake(0, 0, newWidth, newHeight), sourceCG);
+    CGImageRef outCG = CGBitmapContextCreateImage(ctx);
+    CGContextRelease(ctx);
+    if (!outCG) return nil;
+
+    UIImage *result = [UIImage imageWithCGImage:outCG scale:1.0 orientation:UIImageOrientationUp];
+    CGImageRelease(outCG);
     return result;
 }
 
@@ -297,7 +321,17 @@
                                                     userInfo:@{NSLocalizedDescriptionKey: @"Anh khong co CGImage hop le"}];
         return nil;
     }
-    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:cgImage options:@{}];
+    // Vision 15 on older devices is picky about source bitmap formats.
+    // Always feed it a canonical 8-bit RGBA CGImage with orientation-up.
+    CGImageRef canonicalCG = [self canonicalRGBAImageFromCGImage:cgImage];
+    if (!canonicalCG) {
+        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:5
+                                                    userInfo:@{NSLocalizedDescriptionKey: @"Khong chuan hoa duoc dinh dang anh cho Vision"}];
+        return nil;
+    }
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:canonicalCG
+                                                                             orientation:kCGImagePropertyOrientationUp
+                                                                                 options:@{}];
 
     // Chi tao CIImage sau khi Vision request thanh cong/that bai, de input path
     // cua Vision hoan toan doc lap voi CoreImage.
@@ -335,7 +369,10 @@
                     if (outUsedPerson) *outUsedPerson = YES;
                     CIImage *sourceCI = [CIImage imageWithCGImage:cgImage];
                     UIImage *cutout = sourceCI ? [self compositeImage:sourceCI withMask:maskBuf softenEdge:2.0] : nil;
-                    if (cutout) return cutout;
+                    if (cutout) {
+                        CGImageRelease(canonicalCG);
+                        return cutout;
+                    }
                 }
             }
         }
@@ -351,6 +388,7 @@
     if (!obs || !obs.pixelBuffer) {
         if (outError) *outError = err2 ?: [NSError errorWithDomain:@"DepthWallpaper" code:2
                                                             userInfo:@{NSLocalizedDescriptionKey: @"Khong tim thay chu the noi bat nao trong anh"}];
+        CGImageRelease(canonicalCG);
         return nil;
     }
 
@@ -361,9 +399,12 @@
     if (!sourceCI) {
         if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:4
                                                     userInfo:@{NSLocalizedDescriptionKey: @"Khong tao duoc anh xu ly"}];
+        CGImageRelease(canonicalCG);
         return nil;
     }
-    return [self compositeImage:sourceCI withMask:obs.pixelBuffer softenEdge:4.0];
+    UIImage *finalImage = [self compositeImage:sourceCI withMask:obs.pixelBuffer softenEdge:4.0];
+    CGImageRelease(canonicalCG);
+    return finalImage;
 }
 
 - (NSString *)hardwareMachineIdentifier {
