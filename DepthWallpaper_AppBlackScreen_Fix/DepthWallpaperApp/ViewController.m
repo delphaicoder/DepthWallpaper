@@ -18,7 +18,10 @@
 - (void)viewDidLoad {
     [super viewDidLoad];
     self.view.backgroundColor = [UIColor systemBackgroundColor];
+    self.view.opaque = YES;
     [self setupUI];
+    [self.view setNeedsLayout];
+    [self.view layoutIfNeeded];
     [self loadExistingMetadataIntoControls];
 }
 

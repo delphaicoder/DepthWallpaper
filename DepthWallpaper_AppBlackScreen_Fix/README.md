@@ -75,7 +75,3 @@ này, tab Actions tự build trên Linux, tải `.deb`, cài qua Sileo.
   người): chỉnh số `0.015` trong `maskHasReasonableCoverage:`.
 - Không có Settings.app riêng (theo đúng thói quen các tweak trước — tránh rủi
   ro) — mọi chỉnh sửa làm ngay trong app đi kèm.
-
-## 9. Bản 1.0.1 — sửa lỗi app không xuất hiện
-
-Bản này đặt app tại `/Applications/DepthWallpaper.app` (Theos rootless sẽ đóng gói dưới `/var/jb/Applications/`) và chạy `uicache` sau khi cài để LaunchServices đăng ký app. Đồng thời đã thêm bộ icon PNG và `CFBundleIcons` vào Info.plist. Theos rootless dùng `/var/jb/` làm install prefix và đặt architecture gói là `iphoneos-arm64`. 

@@ -22,26 +22,20 @@
     <string>1.0.0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
-    <key>CFBundleIcons</key>
+    <key>UIApplicationSceneManifest</key>
     <dict>
-        <key>CFBundlePrimaryIcon</key>
+        <key>UIApplicationSupportsMultipleScenes</key>
+        <false/>
+        <key>UISceneConfigurations</key>
         <dict>
-            <key>CFBundleIconFiles</key>
+            <key>UIWindowSceneSessionRoleApplication</key>
             <array>
-                <string>AppIcon60x60</string>
-            </array>
-            <key>CFBundleIconName</key>
-            <string></string>
-        </dict>
-    </dict>
-    <key>CFBundleIcons~ipad</key>
-    <dict>
-        <key>CFBundlePrimaryIcon</key>
-        <dict>
-            <key>CFBundleIconFiles</key>
-            <array>
-                <string>AppIcon76x76</string>
-                <string>AppIcon83.5x83.5</string>
+                <dict>
+                    <key>UISceneConfigurationName</key>
+                    <string>Default Configuration</string>
+                    <key>UISceneDelegateClassName</key>
+                    <string>DepthWallpaperApp.SceneDelegate</string>
+                </dict>
             </array>
         </dict>
     </dict>
@@ -56,6 +50,6 @@
     <key>NSPhotoLibraryUsageDescription</key>
     <string>Can quyen truy cap anh de chon hinh nen va tach chu the tao hieu ung chieu sau.</string>
     <key>MinimumOSVersion</key>
-    <string>15.0</string>
+    <string>14.0</string>
 </dict>
 </plist>
