@@ -1,6 +1,6 @@
 Package: com.yourname.depthwallpaper
 Name: DepthWallpaper
-Version: 1.0.5
+Version: 1.0.6
 Architecture: iphoneos-arm64
 Description: Hieu ung "Depth Effect" (chieu sau) kieu iOS 16 cho man hinh khoa iPad. Tach chu the (nguoi hoac vat noi bat) khoi anh, hien no de len tren dong ho khoa may de tao ao giac chieu sau. Kem 1 app nho de chon anh va can chinh vi tri.
 Maintainer: YourName <you@example.com>

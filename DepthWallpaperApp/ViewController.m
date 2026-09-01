@@ -8,6 +8,8 @@
 @property (nonatomic, strong) UIImageView *previewView;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *pickButton;
+@property (nonatomic, strong) UIScrollView *scrollView;
+@property (nonatomic, strong) UIView *contentView;
 @property (nonatomic, strong) UISlider *yOffsetSlider;
 @property (nonatomic, strong) UISlider *scaleSlider;
 @property (nonatomic, strong) UISwitch *enabledSwitch;
@@ -30,89 +32,140 @@
 - (void)setupUI {
     self.title = @"Depth Wallpaper";
 
+    // Dùng UIScrollView để toàn bộ giao diện luôn dùng được ở cả portrait
+    // và landscape, kể cả trên màn hình iPad nhỏ. Các control không bị đẩy
+    // xuống ngoài màn hình khi xoay ngang.
+    self.scrollView = [[UIScrollView alloc] init];
+    self.scrollView.alwaysBounceVertical = YES;
+    self.scrollView.showsVerticalScrollIndicator = YES;
+    self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.view addSubview:self.scrollView];
+
+    self.contentView = [[UIView alloc] init];
+    self.contentView.translatesAutoresizingMaskIntoConstraints = NO;
+    [self.scrollView addSubview:self.contentView];
+
     self.previewView = [[UIImageView alloc] init];
     self.previewView.contentMode = UIViewContentModeScaleAspectFit;
     self.previewView.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    self.previewView.layer.cornerRadius = 12;
+    self.previewView.layer.cornerRadius = 16;
     self.previewView.clipsToBounds = YES;
     self.previewView.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.previewView];
+    [self.contentView addSubview:self.previewView];
 
     self.statusLabel = [[UILabel alloc] init];
-    self.statusLabel.text = @"Chua co anh nao duoc xu ly. Chon 1 anh (nen la anh ban se dat lam hinh nen khoa may) roi bam nut ben duoi.";
+    self.statusLabel.text = @"Chưa có ảnh nào. Chọn một ảnh để tách chủ thể và tạo wallpaper chiều sâu.";
     self.statusLabel.textAlignment = NSTextAlignmentCenter;
     self.statusLabel.numberOfLines = 0;
     self.statusLabel.font = [UIFont systemFontOfSize:13];
     self.statusLabel.textColor = [UIColor secondaryLabelColor];
     self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.statusLabel];
+    [self.contentView addSubview:self.statusLabel];
 
     self.pickButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.pickButton setTitle:@"Chon anh & tach chu the" forState:UIControlStateNormal];
+    [self.pickButton setTitle:@"Chọn ảnh & Tách nền" forState:UIControlStateNormal];
     self.pickButton.titleLabel.font = [UIFont boldSystemFontOfSize:17];
+    self.pickButton.contentEdgeInsets = UIEdgeInsetsMake(12, 20, 12, 20);
+    self.pickButton.backgroundColor = [UIColor systemBlueColor];
+    [self.pickButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
+    self.pickButton.layer.cornerRadius = 12;
     [self.pickButton addTarget:self action:@selector(pickButtonTapped) forControlEvents:UIControlEventTouchUpInside];
     self.pickButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.pickButton];
+    [self.contentView addSubview:self.pickButton];
 
-    UILabel *yLabel = [self makeCaption:@"Vi tri doc (keo sang phai = cang gan dinh man hinh)"];
-    [self.view addSubview:yLabel];
+    UILabel *yLabel = [self makeCaption:@"Vị trí dọc (kéo sang phải = gần đỉnh màn hình hơn)"];
+    [self.contentView addSubview:yLabel];
     self.yOffsetSlider = [[UISlider alloc] init];
     self.yOffsetSlider.minimumValue = 0.0;
     self.yOffsetSlider.maximumValue = 0.7;
     self.yOffsetSlider.value = 0.30;
     [self.yOffsetSlider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
     self.yOffsetSlider.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.yOffsetSlider];
+    [self.contentView addSubview:self.yOffsetSlider];
 
-    UILabel *scaleLabel = [self makeCaption:@"Kich thuoc chu the tren man hinh khoa"];
-    [self.view addSubview:scaleLabel];
+    UILabel *scaleLabel = [self makeCaption:@"Kích thước chủ thể trên màn hình khóa"];
+    [self.contentView addSubview:scaleLabel];
     self.scaleSlider = [[UISlider alloc] init];
     self.scaleSlider.minimumValue = 0.4;
     self.scaleSlider.maximumValue = 1.5;
     self.scaleSlider.value = 1.0;
     [self.scaleSlider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
     self.scaleSlider.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.scaleSlider];
+    [self.contentView addSubview:self.scaleSlider];
 
-    UILabel *enabledLabel = [self makeCaption:@"Bat hieu ung chieu sau"];
-    [self.view addSubview:enabledLabel];
+    UILabel *enabledLabel = [self makeCaption:@"Bật hiệu ứng chiều sâu"];
+    [self.contentView addSubview:enabledLabel];
     self.enabledSwitch = [[UISwitch alloc] init];
     self.enabledSwitch.on = YES;
     [self.enabledSwitch addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
     self.enabledSwitch.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.view addSubview:self.enabledSwitch];
+    [self.contentView addSubview:self.enabledSwitch];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
     [NSLayoutConstraint activateConstraints:@[
-        [self.previewView.topAnchor constraintEqualToAnchor:safe.topAnchor constant:16],
-        [self.previewView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
-        [self.previewView.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
-        [self.previewView.heightAnchor constraintEqualToAnchor:self.previewView.widthAnchor multiplier:1.3],
+        [self.scrollView.topAnchor constraintEqualToAnchor:safe.topAnchor],
+        [self.scrollView.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor],
+        [self.scrollView.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
+        [self.scrollView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
+
+        // Content width luôn bằng viewport để xoay dọc/ngang không tạo
+        // chiều rộng thừa. Chiều cao do Auto Layout + scroll quyết định.
+        [self.contentView.leadingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.leadingAnchor],
+        [self.contentView.trailingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.trailingAnchor],
+        [self.contentView.topAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.topAnchor],
+        [self.contentView.bottomAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.bottomAnchor],
+        [self.contentView.widthAnchor constraintEqualToAnchor:self.scrollView.frameLayoutGuide.widthAnchor],
+
+        // Preview tự co vừa chiều ngang, nhưng không chiếm hết màn hình
+        // ở landscape. 4:3 gần với khung ảnh trên iPad và luôn còn chỗ cho nút.
+        [self.previewView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
+        [self.previewView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [self.previewView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+        [self.previewView.heightAnchor constraintEqualToAnchor:self.previewView.widthAnchor multiplier:0.75],
+        [self.previewView.heightAnchor constraintLessThanOrEqualToConstant:300],
 
         [self.statusLabel.topAnchor constraintEqualToAnchor:self.previewView.bottomAnchor constant:12],
-        [self.statusLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
-        [self.statusLabel.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [self.statusLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [self.statusLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
 
-        [self.pickButton.topAnchor constraintEqualToAnchor:self.statusLabel.bottomAnchor constant:20],
-        [self.pickButton.centerXAnchor constraintEqualToAnchor:self.view.centerXAnchor],
+        [self.pickButton.topAnchor constraintEqualToAnchor:self.statusLabel.bottomAnchor constant:18],
+        [self.pickButton.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
+        [self.pickButton.heightAnchor constraintGreaterThanOrEqualToConstant:48],
 
-        [yLabel.topAnchor constraintEqualToAnchor:self.pickButton.bottomAnchor constant:28],
-        [yLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
+        [yLabel.topAnchor constraintEqualToAnchor:self.pickButton.bottomAnchor constant:24],
+        [yLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [yLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
         [self.yOffsetSlider.topAnchor constraintEqualToAnchor:yLabel.bottomAnchor constant:6],
-        [self.yOffsetSlider.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
-        [self.yOffsetSlider.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [self.yOffsetSlider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [self.yOffsetSlider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
 
-        [scaleLabel.topAnchor constraintEqualToAnchor:self.yOffsetSlider.bottomAnchor constant:20],
-        [scaleLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
+        [scaleLabel.topAnchor constraintEqualToAnchor:self.yOffsetSlider.bottomAnchor constant:18],
+        [scaleLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [scaleLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
         [self.scaleSlider.topAnchor constraintEqualToAnchor:scaleLabel.bottomAnchor constant:6],
-        [self.scaleSlider.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
-        [self.scaleSlider.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [self.scaleSlider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [self.scaleSlider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
 
-        [enabledLabel.topAnchor constraintEqualToAnchor:self.scaleSlider.bottomAnchor constant:20],
-        [enabledLabel.leadingAnchor constraintEqualToAnchor:safe.leadingAnchor constant:20],
+        [enabledLabel.topAnchor constraintEqualToAnchor:self.scaleSlider.bottomAnchor constant:18],
+        [enabledLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
         [self.enabledSwitch.centerYAnchor constraintEqualToAnchor:enabledLabel.centerYAnchor],
-        [self.enabledSwitch.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor constant:-20],
+        [self.enabledSwitch.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+
+        [self.contentView.bottomAnchor constraintGreaterThanOrEqualToAnchor:enabledLabel.bottomAnchor constant:28]
     ]];
+}
+
+// Cho cả iPhone/iPad: cho phép xoay tự do giữa portrait và landscape.
+- (BOOL)shouldAutorotate {
+    return YES;
+}
+
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
+    return UIInterfaceOrientationMaskAll;
+}
+
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
+    return UIInterfaceOrientationPortrait;
 }
 
 - (UILabel *)makeCaption:(NSString *)text {
