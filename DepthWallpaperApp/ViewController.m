@@ -61,14 +61,14 @@
     self.statusLabel.text = @"Chọn 2 ảnh cùng độ phân giải: hình nền gốc + PNG đã tách nền. App sẽ giữ nguyên kích thước, không resize chủ thể.";
     [self.contentView addSubview:self.statusLabel];
 
-    self.wallpaperButton = [self makeButtonWithTitle:@"1. Chọn hình nền gốc"] action:@selector(selectWallpaper)];
+    self.wallpaperButton = [self makeButtonWithTitle:@"1. Chọn hình nền gốc" action:@selector(selectWallpaper)];
     [self.contentView addSubview:self.wallpaperButton];
 
     self.wallpaperInfoLabel = [self makeInfoLabel];
     self.wallpaperInfoLabel.text = @"Chưa chọn hình nền";
     [self.contentView addSubview:self.wallpaperInfoLabel];
 
-    self.cutoutButton = [self makeButtonWithTitle:@"2. Chọn PNG đã tách nền"] action:@selector(selectCutout)];
+    self.cutoutButton = [self makeButtonWithTitle:@"2. Chọn PNG đã tách nền" action:@selector(selectCutout)];
     [self.contentView addSubview:self.cutoutButton];
 
     self.cutoutInfoLabel = [self makeInfoLabel];
