@@ -55,11 +55,6 @@ jobs:
           mv iPhoneOS14.5.sdk "$THEOS/sdks/"
           rm -rf "$THEOS/sdks/iPhoneOS14.5.sdk/usr/include/c++"
 
-      - name: Fix maintainer script permissions
-        run: |
-          chmod 755 layout/DEBIAN/postinst layout/DEBIAN/prerm
-          stat -c "%a %n" layout/DEBIAN/postinst layout/DEBIAN/prerm
-
       - name: Build package
         run: |
           export THEOS="$HOME/theos"

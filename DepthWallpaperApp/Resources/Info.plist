@@ -24,9 +24,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.7</string>
+    <string>1.2.0</string>
     <key>CFBundleVersion</key>
-    <string>1.0.7</string>
+    <string>1.2.0</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>UIApplicationSceneManifest</key>
@@ -62,7 +62,7 @@
         <string>UIInterfaceOrientationLandscapeRight</string>
     </array>
     <key>NSPhotoLibraryUsageDescription</key>
-    <string>Can quyen truy cap anh de chon hinh nen va tach chu the tao hieu ung chieu sau.</string>
+    <string>Can quyen truy cap anh de chon hinh nen va anh PNG da tach nen.</string>
     <key>MinimumOSVersion</key>
     <string>14.0</string>
 </dict>

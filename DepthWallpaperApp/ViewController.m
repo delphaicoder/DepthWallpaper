@@ -1,45 +1,42 @@
 #import "ViewController.h"
-#import <Vision/Vision.h>
-#import <CoreImage/CoreImage.h>
-#import "VisionCompat.h"
-#import <sys/sysctl.h>
+#import <PhotosUI/PhotosUI.h>
+#import <ImageIO/ImageIO.h>
+#import <MobileCoreServices/MobileCoreServices.h>
 #import "../DWShared.h"
 
-@interface ViewController ()
-@property (nonatomic, strong) UIImageView *previewView;
-@property (nonatomic, strong) UILabel *statusLabel;
-@property (nonatomic, strong) UIButton *pickButton;
+@interface ViewController () <PHPickerViewControllerDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIView *contentView;
-@property (nonatomic, strong) UISlider *yOffsetSlider;
-@property (nonatomic, strong) UISlider *scaleSlider;
+@property (nonatomic, strong) UIImageView *previewView;
+@property (nonatomic, strong) UILabel *statusLabel;
+@property (nonatomic, strong) UIButton *wallpaperButton;
+@property (nonatomic, strong) UIButton *cutoutButton;
 @property (nonatomic, strong) UISwitch *enabledSwitch;
+@property (nonatomic, strong) UILabel *wallpaperInfoLabel;
+@property (nonatomic, strong) UILabel *cutoutInfoLabel;
+@property (nonatomic, copy) NSString *pickerMode;
+@property (nonatomic, strong) UIImage *wallpaperPreview;
+@property (nonatomic, strong) UIImage *cutoutPreview;
+@property (nonatomic) CGSize wallpaperPixelSize;
+@property (nonatomic) CGSize cutoutPixelSize;
 @end
 
 @implementation ViewController
 
 - (void)viewDidLoad {
     [super viewDidLoad];
-    self.view.backgroundColor = [UIColor systemBackgroundColor];
-    self.view.opaque = YES;
+    self.title = @"Depth Wallpaper";
+    self.view.backgroundColor = UIColor.systemBackgroundColor;
     [self setupUI];
-    [self.view setNeedsLayout];
-    [self.view layoutIfNeeded];
-    [self loadExistingMetadataIntoControls];
+    [self loadExistingState];
 }
 
-#pragma mark - Giao dien
+#pragma mark - UI
 
 - (void)setupUI {
-    self.title = @"Depth Wallpaper";
-
-    // Dùng UIScrollView để toàn bộ giao diện luôn dùng được ở cả portrait
-    // và landscape, kể cả trên màn hình iPad nhỏ. Các control không bị đẩy
-    // xuống ngoài màn hình khi xoay ngang.
     self.scrollView = [[UIScrollView alloc] init];
-    self.scrollView.alwaysBounceVertical = YES;
-    self.scrollView.showsVerticalScrollIndicator = YES;
     self.scrollView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.scrollView.alwaysBounceVertical = YES;
     [self.view addSubview:self.scrollView];
 
     self.contentView = [[UIView alloc] init];
@@ -47,59 +44,44 @@
     [self.scrollView addSubview:self.contentView];
 
     self.previewView = [[UIImageView alloc] init];
-    self.previewView.contentMode = UIViewContentModeScaleAspectFit;
-    self.previewView.backgroundColor = [UIColor secondarySystemBackgroundColor];
-    self.previewView.layer.cornerRadius = 16;
-    self.previewView.clipsToBounds = YES;
     self.previewView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.previewView.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.previewView.layer.cornerRadius = 16.0;
+    self.previewView.clipsToBounds = YES;
+    self.previewView.contentMode = UIViewContentModeScaleAspectFit;
     [self.contentView addSubview:self.previewView];
 
     self.statusLabel = [[UILabel alloc] init];
-    self.statusLabel.text = @"Chưa có ảnh nào. Chọn một ảnh để tách chủ thể và tạo wallpaper chiều sâu.";
-    self.statusLabel.textAlignment = NSTextAlignmentCenter;
-    self.statusLabel.numberOfLines = 0;
-    self.statusLabel.font = [UIFont systemFontOfSize:13];
-    self.statusLabel.textColor = [UIColor secondaryLabelColor];
     self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
+    self.statusLabel.numberOfLines = 0;
+    self.statusLabel.textAlignment = NSTextAlignmentCenter;
+    self.statusLabel.font = [UIFont systemFontOfSize:14.0];
+    self.statusLabel.textColor = UIColor.secondaryLabelColor;
+    self.statusLabel.text = @"Chọn 2 ảnh cùng độ phân giải: hình nền gốc + PNG đã tách nền. App sẽ giữ nguyên kích thước, không resize chủ thể.";
     [self.contentView addSubview:self.statusLabel];
 
-    self.pickButton = [UIButton buttonWithType:UIButtonTypeSystem];
-    [self.pickButton setTitle:@"Chọn ảnh & Tách nền" forState:UIControlStateNormal];
-    self.pickButton.titleLabel.font = [UIFont boldSystemFontOfSize:17];
-    self.pickButton.contentEdgeInsets = UIEdgeInsetsMake(12, 20, 12, 20);
-    self.pickButton.backgroundColor = [UIColor systemBlueColor];
-    [self.pickButton setTitleColor:[UIColor whiteColor] forState:UIControlStateNormal];
-    self.pickButton.layer.cornerRadius = 12;
-    [self.pickButton addTarget:self action:@selector(pickButtonTapped) forControlEvents:UIControlEventTouchUpInside];
-    self.pickButton.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.contentView addSubview:self.pickButton];
+    self.wallpaperButton = [self makeButtonWithTitle:@"1. Chọn hình nền gốc"] action:@selector(selectWallpaper)];
+    [self.contentView addSubview:self.wallpaperButton];
 
-    UILabel *yLabel = [self makeCaption:@"Vị trí dọc (kéo sang phải = gần đỉnh màn hình hơn)"];
-    [self.contentView addSubview:yLabel];
-    self.yOffsetSlider = [[UISlider alloc] init];
-    self.yOffsetSlider.minimumValue = 0.0;
-    self.yOffsetSlider.maximumValue = 0.7;
-    self.yOffsetSlider.value = 0.30;
-    [self.yOffsetSlider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
-    self.yOffsetSlider.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.contentView addSubview:self.yOffsetSlider];
+    self.wallpaperInfoLabel = [self makeInfoLabel];
+    self.wallpaperInfoLabel.text = @"Chưa chọn hình nền";
+    [self.contentView addSubview:self.wallpaperInfoLabel];
 
-    UILabel *scaleLabel = [self makeCaption:@"Kích thước chủ thể trên màn hình khóa"];
-    [self.contentView addSubview:scaleLabel];
-    self.scaleSlider = [[UISlider alloc] init];
-    self.scaleSlider.minimumValue = 0.4;
-    self.scaleSlider.maximumValue = 1.5;
-    self.scaleSlider.value = 1.0;
-    [self.scaleSlider addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
-    self.scaleSlider.translatesAutoresizingMaskIntoConstraints = NO;
-    [self.contentView addSubview:self.scaleSlider];
+    self.cutoutButton = [self makeButtonWithTitle:@"2. Chọn PNG đã tách nền"] action:@selector(selectCutout)];
+    [self.contentView addSubview:self.cutoutButton];
 
-    UILabel *enabledLabel = [self makeCaption:@"Bật hiệu ứng chiều sâu"];
+    self.cutoutInfoLabel = [self makeInfoLabel];
+    self.cutoutInfoLabel.text = @"Chưa chọn ảnh chủ thể";
+    [self.contentView addSubview:self.cutoutInfoLabel];
+
+    UILabel *enabledLabel = [self makeInfoLabel];
+    enabledLabel.text = @"Bật hiệu ứng chiều sâu";
     [self.contentView addSubview:enabledLabel];
+
     self.enabledSwitch = [[UISwitch alloc] init];
-    self.enabledSwitch.on = YES;
-    [self.enabledSwitch addTarget:self action:@selector(sliderChanged) forControlEvents:UIControlEventValueChanged];
     self.enabledSwitch.translatesAutoresizingMaskIntoConstraints = NO;
+    self.enabledSwitch.on = YES;
+    [self.enabledSwitch addTarget:self action:@selector(enabledChanged) forControlEvents:UIControlEventValueChanged];
     [self.contentView addSubview:self.enabledSwitch];
 
     UILayoutGuide *safe = self.view.safeAreaLayoutGuide;
@@ -109,385 +91,288 @@
         [self.scrollView.trailingAnchor constraintEqualToAnchor:safe.trailingAnchor],
         [self.scrollView.bottomAnchor constraintEqualToAnchor:safe.bottomAnchor],
 
-        // Content width luôn bằng viewport để xoay dọc/ngang không tạo
-        // chiều rộng thừa. Chiều cao do Auto Layout + scroll quyết định.
         [self.contentView.leadingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.leadingAnchor],
         [self.contentView.trailingAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.trailingAnchor],
         [self.contentView.topAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.topAnchor],
         [self.contentView.bottomAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.bottomAnchor],
         [self.contentView.widthAnchor constraintEqualToAnchor:self.scrollView.frameLayoutGuide.widthAnchor],
 
-        // Preview tự co vừa chiều ngang, nhưng không chiếm hết màn hình
-        // ở landscape. 4:3 gần với khung ảnh trên iPad và luôn còn chỗ cho nút.
         [self.previewView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
         [self.previewView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
         [self.previewView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
-        [self.previewView.heightAnchor constraintEqualToAnchor:self.previewView.widthAnchor multiplier:0.75],
-        [self.previewView.heightAnchor constraintLessThanOrEqualToConstant:300],
+        [self.previewView.heightAnchor constraintEqualToAnchor:self.previewView.widthAnchor multiplier:0.5625],
+        [self.previewView.heightAnchor constraintLessThanOrEqualToConstant:360],
 
         [self.statusLabel.topAnchor constraintEqualToAnchor:self.previewView.bottomAnchor constant:12],
-        [self.statusLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-        [self.statusLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+        [self.statusLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
+        [self.statusLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
 
-        [self.pickButton.topAnchor constraintEqualToAnchor:self.statusLabel.bottomAnchor constant:18],
-        [self.pickButton.centerXAnchor constraintEqualToAnchor:self.contentView.centerXAnchor],
-        [self.pickButton.heightAnchor constraintGreaterThanOrEqualToConstant:48],
+        [self.wallpaperButton.topAnchor constraintEqualToAnchor:self.statusLabel.bottomAnchor constant:16],
+        [self.wallpaperButton.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
+        [self.wallpaperButton.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
+        [self.wallpaperButton.heightAnchor constraintGreaterThanOrEqualToConstant:50],
 
-        [yLabel.topAnchor constraintEqualToAnchor:self.pickButton.bottomAnchor constant:24],
-        [yLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-        [yLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
-        [self.yOffsetSlider.topAnchor constraintEqualToAnchor:yLabel.bottomAnchor constant:6],
-        [self.yOffsetSlider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-        [self.yOffsetSlider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+        [self.wallpaperInfoLabel.topAnchor constraintEqualToAnchor:self.wallpaperButton.bottomAnchor constant:5],
+        [self.wallpaperInfoLabel.leadingAnchor constraintEqualToAnchor:self.wallpaperButton.leadingAnchor],
+        [self.wallpaperInfoLabel.trailingAnchor constraintEqualToAnchor:self.wallpaperButton.trailingAnchor],
 
-        [scaleLabel.topAnchor constraintEqualToAnchor:self.yOffsetSlider.bottomAnchor constant:18],
-        [scaleLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-        [scaleLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
-        [self.scaleSlider.topAnchor constraintEqualToAnchor:scaleLabel.bottomAnchor constant:6],
-        [self.scaleSlider.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-        [self.scaleSlider.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+        [self.cutoutButton.topAnchor constraintEqualToAnchor:self.wallpaperInfoLabel.bottomAnchor constant:16],
+        [self.cutoutButton.leadingAnchor constraintEqualToAnchor:self.wallpaperButton.leadingAnchor],
+        [self.cutoutButton.trailingAnchor constraintEqualToAnchor:self.wallpaperButton.trailingAnchor],
+        [self.cutoutButton.heightAnchor constraintGreaterThanOrEqualToConstant:50],
 
-        [enabledLabel.topAnchor constraintEqualToAnchor:self.scaleSlider.bottomAnchor constant:18],
-        [enabledLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [self.cutoutInfoLabel.topAnchor constraintEqualToAnchor:self.cutoutButton.bottomAnchor constant:5],
+        [self.cutoutInfoLabel.leadingAnchor constraintEqualToAnchor:self.cutoutButton.leadingAnchor],
+        [self.cutoutInfoLabel.trailingAnchor constraintEqualToAnchor:self.cutoutButton.trailingAnchor],
+
+        [enabledLabel.topAnchor constraintEqualToAnchor:self.cutoutInfoLabel.bottomAnchor constant:18],
+        [enabledLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
         [self.enabledSwitch.centerYAnchor constraintEqualToAnchor:enabledLabel.centerYAnchor],
-        [self.enabledSwitch.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
-
+        [self.enabledSwitch.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
         [self.contentView.bottomAnchor constraintGreaterThanOrEqualToAnchor:enabledLabel.bottomAnchor constant:28]
     ]];
 }
 
-// Cho cả iPhone/iPad: cho phép xoay tự do giữa portrait và landscape.
-- (BOOL)shouldAutorotate {
-    return YES;
+- (UIButton *)makeButtonWithTitle:(NSString *)title action:(SEL)action {
+    UIButton *button = [UIButton buttonWithType:UIButtonTypeSystem];
+    button.translatesAutoresizingMaskIntoConstraints = NO;
+    [button setTitle:title forState:UIControlStateNormal];
+    button.titleLabel.font = [UIFont boldSystemFontOfSize:17.0];
+    button.backgroundColor = UIColor.systemBlueColor;
+    [button setTitleColor:UIColor.whiteColor forState:UIControlStateNormal];
+    button.layer.cornerRadius = 12.0;
+    button.contentEdgeInsets = UIEdgeInsetsMake(12, 18, 12, 18);
+    [button addTarget:self action:action forControlEvents:UIControlEventTouchUpInside];
+    return button;
 }
 
-- (UIInterfaceOrientationMask)supportedInterfaceOrientations {
-    return UIInterfaceOrientationMaskAll;
+- (UILabel *)makeInfoLabel {
+    UILabel *label = [[UILabel alloc] init];
+    label.translatesAutoresizingMaskIntoConstraints = NO;
+    label.font = [UIFont systemFontOfSize:13.0];
+    label.textColor = UIColor.secondaryLabelColor;
+    label.numberOfLines = 0;
+    return label;
 }
 
-- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation {
-    return UIInterfaceOrientationPortrait;
+- (BOOL)shouldAutorotate { return YES; }
+- (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+
+#pragma mark - Picker
+
+- (void)selectWallpaper {
+    self.pickerMode = @"wallpaper";
+    [self presentPickerAllowMultiple:NO];
 }
 
-- (UILabel *)makeCaption:(NSString *)text {
-    UILabel *l = [[UILabel alloc] init];
-    l.text = text;
-    l.font = [UIFont systemFontOfSize:14];
-    l.translatesAutoresizingMaskIntoConstraints = NO;
-    return l;
+- (void)selectCutout {
+    self.pickerMode = @"cutout";
+    [self presentPickerAllowMultiple:NO];
 }
 
-- (void)loadExistingMetadataIntoControls {
-    NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:DWMetadataPath];
-    if (meta) {
-        self.yOffsetSlider.value = meta[DWMetaKeyYOffsetRatio] ? [meta[DWMetaKeyYOffsetRatio] floatValue] : 0.30;
-        self.scaleSlider.value = meta[DWMetaKeyScale] ? [meta[DWMetaKeyScale] floatValue] : 1.0;
-        self.enabledSwitch.on = meta[DWMetaKeyEnabled] ? [meta[DWMetaKeyEnabled] boolValue] : YES;
-    }
-    UIImage *cutout = [UIImage imageWithContentsOfFile:DWCutoutImagePath];
-    if (cutout) {
-        self.previewView.image = cutout;
-        self.statusLabel.text = @"Da co anh xu ly tu truoc — chon anh moi de thay doi.";
-    }
-}
-
-#pragma mark - Chon anh
-
-- (void)pickButtonTapped {
-    UIImagePickerController *picker = [[UIImagePickerController alloc] init];
-    picker.sourceType = UIImagePickerControllerSourceTypePhotoLibrary;
+- (void)presentPickerAllowMultiple:(BOOL)allowMultiple {
+    PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
+    configuration.filter = [PHPickerFilter imagesFilter];
+    configuration.selectionLimit = allowMultiple ? 0 : 1;
+    PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
     picker.delegate = self;
-    picker.allowsEditing = NO;
     [self presentViewController:picker animated:YES completion:nil];
 }
 
-- (void)imagePickerController:(UIImagePickerController *)picker didFinishPickingMediaWithInfo:(NSDictionary<UIImagePickerControllerInfoKey,id> *)info {
+- (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
-    UIImage *original = info[UIImagePickerControllerOriginalImage];
-    if (!original) return;
-    [self processImage:original];
+    PHPickerResult *result = results.firstObject;
+    if (!result) return;
+
+    NSItemProvider *provider = result.itemProvider;
+    self.statusLabel.text = @"Đang đọc ảnh gốc, không resize...";
+    self.wallpaperButton.enabled = NO;
+    self.cutoutButton.enabled = NO;
+
+    // Prefer the original file representation so pixel dimensions/alpha and
+    // the cutout PNG are preserved instead of being recompressed through UIImage.
+    NSString *typeIdentifier = nil;
+    if ([self.pickerMode isEqualToString:@"cutout"]) {
+        typeIdentifier = (__bridge NSString *)kUTTypePNG;
+    } else {
+        typeIdentifier = (__bridge NSString *)kUTTypeImage;
+    }
+
+    [provider loadFileRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
+        if (!url) {
+            // Fallback to decoded UIImage when Photos does not offer a file representation.
+            [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage * _Nullable image, NSError * _Nullable imageError) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.wallpaperButton.enabled = YES;
+                    self.cutoutButton.enabled = YES;
+                    if (image) {
+                        [self handleImage:image mode:self.pickerMode originalData:nil typeIdentifier:typeIdentifier];
+                    } else {
+                        self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", imageError.localizedDescription ?: error.localizedDescription ?: @"unknown"];
+                    }
+                });
+            }];
+            return;
+        }
+
+        NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:nil];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.wallpaperButton.enabled = YES;
+            self.cutoutButton.enabled = YES;
+            if (!data) {
+                self.statusLabel.text = @"Không đọc được file ảnh gốc.";
+                return;
+            }
+            UIImage *image = [UIImage imageWithData:data scale:1.0];
+            [self handleImage:image mode:self.pickerMode originalData:data typeIdentifier:typeIdentifier];
+        });
+    }];
 }
 
-- (void)imagePickerControllerDidCancel:(UIImagePickerController *)picker {
-    [picker dismissViewControllerAnimated:YES completion:nil];
-}
+#pragma mark - Pair processing (NO Vision / NO resize)
 
-#pragma mark - Xu ly Vision framework (tach chu the)
-
-- (void)processImage:(UIImage *)sourceImage {
-    self.statusLabel.text = @"Dang xu ly... co the mat vai giay tren iPad Air 2 (chip cu).";
-    self.pickButton.enabled = NO;
-
-    // Chuan hoa anh ve pixel size that (khong dung UIImage.size theo points) va
-    // dat scale=1.0 de Vision khong nhan nham anh Retina thanh anh nhieu nghin px.
-    // Tren A8X giu toi da 640 px de giam peak RAM/CPU.
-    UIImage *resized = [self imageByLimitingLongestSide:sourceImage to:512];
-    if (!resized || !resized.CGImage) {
-        self.pickButton.enabled = YES;
-        self.statusLabel.text = @"Khong the chuan hoa anh nay. Thu mot anh khac.";
+- (void)handleImage:(UIImage *)image mode:(NSString *)mode originalData:(NSData *)originalData typeIdentifier:(NSString *)typeIdentifier {
+    if (!image || !image.CGImage) {
+        self.statusLabel.text = @"Ảnh không có CGImage hợp lệ.";
         return;
     }
 
-    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        @autoreleasepool {
-            NSError *pipelineError = nil;
-            BOOL usedPerson = NO;
-            UIImage *cutout = [self generateCutoutFromImage:resized
-                                      usedPersonSegmentation:&usedPerson
-                                                        error:&pipelineError];
+    CGSize pixels = CGSizeMake(CGImageGetWidth(image.CGImage), CGImageGetHeight(image.CGImage));
 
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.pickButton.enabled = YES;
-                if (!cutout) {
-                    self.statusLabel.text = [NSString stringWithFormat:@"Khong tach duoc chu the: %@",
-                                              pipelineError.localizedDescription ?: @"khong ro nguyen nhan"];
-                    return;
-                }
-                self.previewView.image = cutout;
-                self.statusLabel.text = usedPerson
-                    ? @"Da tach NGUOI thanh cong. Nho DAT anh GOC nay lam hinh nen khoa may trong Cai dat."
-                    : @"Da tao vung chu the noi bat. Neu anh co nguoi, thu anh co nguoi ro va it nen roi.";
-                [self saveCutout:cutout];
-            });
+    if ([mode isEqualToString:@"cutout"] && ![self imageHasAlpha:image.CGImage]) {
+        self.statusLabel.text = @"Ảnh chủ thể phải là PNG có nền trong suốt (alpha).";
+        return;
+    }
+
+    if ([mode isEqualToString:@"wallpaper"]) {
+        self.wallpaperPreview = image;
+        self.wallpaperPixelSize = pixels;
+        self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
+        if (originalData) {
+            [self saveData:originalData toPath:DWWallpaperImagePath];
+        } else {
+            NSData *png = UIImagePNGRepresentation(image);
+            if (png) [self saveData:png toPath:DWWallpaperImagePath];
         }
-    });
-}
-
-- (CGImageRef)canonicalRGBAImageFromCGImage:(CGImageRef)source {
-    if (!source) return NULL;
-
-    size_t width = CGImageGetWidth(source);
-    size_t height = CGImageGetHeight(source);
-    if (width == 0 || height == 0 || width > 4096 || height > 4096) return NULL;
-
-    CGColorSpaceRef colorSpace = CGColorSpaceCreateDeviceRGB();
-    if (!colorSpace) return NULL;
-
-    CGContextRef ctx = CGBitmapContextCreate(NULL, width, height, 8, width * 4, colorSpace,
-                                              kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-    CGColorSpaceRelease(colorSpace);
-    if (!ctx) return NULL;
-
-    CGContextSetBlendMode(ctx, kCGBlendModeCopy);
-    CGContextDrawImage(ctx, CGRectMake(0, 0, width, height), source);
-    CGImageRef result = CGBitmapContextCreateImage(ctx);
-    CGContextRelease(ctx);
-    return result;
-}
-
-- (UIImage *)imageByLimitingLongestSide:(UIImage *)img to:(CGFloat)maxSide {
-    CGImageRef sourceCG = img.CGImage;
-    if (!sourceCG) return nil;
-
-    size_t pixelWidth = CGImageGetWidth(sourceCG);
-    size_t pixelHeight = CGImageGetHeight(sourceCG);
-    size_t longest = MAX(pixelWidth, pixelHeight);
-    CGFloat factor = (longest > (size_t)maxSide) ? (maxSide / (CGFloat)longest) : 1.0;
-    size_t newWidth = MAX((size_t)1, (size_t)floor(pixelWidth * factor));
-    size_t newHeight = MAX((size_t)1, (size_t)floor(pixelHeight * factor));
-
-    CGColorSpaceRef cs = CGColorSpaceCreateDeviceRGB();
-    CGContextRef ctx = CGBitmapContextCreate(NULL, newWidth, newHeight, 8, newWidth * 4, cs,
-                                               kCGImageAlphaPremultipliedLast | kCGBitmapByteOrder32Big);
-    CGColorSpaceRelease(cs);
-    if (!ctx) return nil;
-
-    CGContextSetInterpolationQuality(ctx, kCGInterpolationLow);
-    CGContextSetBlendMode(ctx, kCGBlendModeCopy);
-    CGContextDrawImage(ctx, CGRectMake(0, 0, newWidth, newHeight), sourceCG);
-    CGImageRef outCG = CGBitmapContextCreateImage(ctx);
-    CGContextRelease(ctx);
-    if (!outCG) return nil;
-
-    UIImage *result = [UIImage imageWithCGImage:outCG scale:1.0 orientation:UIImageOrientationUp];
-    CGImageRelease(outCG);
-    return result;
-}
-
-// Tra ve anh cutout (nen trong suot, chi giu chu the) hoac nil neu that bai.
-// Thu NGUOI truoc (chinh xac hon nhieu, API chinh thuc tu iOS 15), khong co
-// nguoi thi roi xuong saliency (do vung noi bat — cho vat the nhu nui, toa nha
-// cao, do vat noi bat khac). Day la 2 API CONG KHAI cua Apple, khong phai
-// private — do tin cay cao hon nhieu so voi cac phan private khac trong tweak.
-- (UIImage *)generateCutoutFromImage:(UIImage *)image
-              usedPersonSegmentation:(BOOL *)outUsedPerson
-                                error:(NSError **)outError {
-    // Dung CGImage da chuan hoa thay vi tao CIImage ngay tu dau de tranh
-    // CoreImage phai khoi tao GPU context truoc khi Vision chay.
-    // va tranh loi "failed to scale the input image" voi anh Retina / mau dac biet.
-    CGImageRef cgImage = image.CGImage;
-    if (!cgImage) {
-        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:3
-                                                    userInfo:@{NSLocalizedDescriptionKey: @"Anh khong co CGImage hop le"}];
-        return nil;
-    }
-    // Vision 15 on older devices is picky about source bitmap formats.
-    // Always feed it a canonical 8-bit RGBA CGImage with orientation-up.
-    CGImageRef canonicalCG = [self canonicalRGBAImageFromCGImage:cgImage];
-    if (!canonicalCG) {
-        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:5
-                                                    userInfo:@{NSLocalizedDescriptionKey: @"Khong chuan hoa duoc dinh dang anh cho Vision"}];
-        return nil;
-    }
-    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:canonicalCG
-                                                                             orientation:kCGImagePropertyOrientationUp
-                                                                                 options:@{}];
-
-    // Chi tao CIImage sau khi Vision request thanh cong/that bai, de input path
-    // cua Vision hoan toan doc lap voi CoreImage.
-
-    // --- Buoc 1: tach nguoi ---
-    // iPad Air 2 (iPad5,4 / A8X) tren iOS 15.8.x co the SIGSEGV trong CoreImage
-    // ngay khi Vision khoi tao VNPersonSegmentationGenerator. Day la native
-    // EXC_BAD_ACCESS nen @try/@catch khong the chan duoc. Vi vay tren A8X,
-    // KHONG khoi tao person segmentation; chuyen thang sang saliency nhe hon.
-    NSString *machine = [self hardwareMachineIdentifier];
-    BOOL isA8X = [machine isEqualToString:@"iPad5,4"] || [machine isEqualToString:@"iPad5,3"];
-
-    if (!isA8X) {
-        Class personReqClass = NSClassFromString(@"VNGeneratePersonSegmentationRequest");
-        if (personReqClass) {
-            id personReq = [[personReqClass alloc] init];
-            if (personReq && [personReq respondsToSelector:@selector(setQualityLevel:)]) {
-                [personReq setQualityLevel:VNGeneratePersonSegmentationRequestQualityLevelFast];
-            }
-            if (personReq && [personReq respondsToSelector:@selector(setOutputPixelFormat:)]) {
-                [personReq setOutputPixelFormat:kCVPixelFormatType_OneComponent8];
-            }
-            // LUU Y: bo qua imageCropAndScaleOption — thuoc tinh nay KHONG co trong
-            // SDK 14.5 (giong tinh huong voi VNGeneratePersonSegmentationRequest),
-            // va khong bat buoc vi anh da duoc tu resize truoc do (imageByLimiting
-            // LongestSide:). Vision se dung gia tri mac dinh cua no, van hoat dong binh
-            // thuong, chi la khong tuy chinh duoc cach crop/scale truoc khi dua vao AI.
-
-            NSError *err1 = nil;
-            BOOL ok = [handler performRequests:@[personReq] error:&err1];
-            if (ok) {
-                VNPixelBufferObservation *firstObs = [[personReq results] firstObject];
-                CVPixelBufferRef maskBuf = firstObs ? firstObs.pixelBuffer : NULL;
-                if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
-                    if (outUsedPerson) *outUsedPerson = YES;
-                    CIImage *sourceCI = [CIImage imageWithCGImage:cgImage];
-                    UIImage *cutout = sourceCI ? [self compositeImage:sourceCI withMask:maskBuf softenEdge:2.0] : nil;
-                    if (cutout) {
-                        CGImageRelease(canonicalCG);
-                        return cutout;
-                    }
-                }
-            }
+    } else {
+        // The selected PNG is stored byte-for-byte when Photos provides the
+        // original file. No crop, resize or re-encoding of the cutout.
+        self.cutoutPreview = image;
+        self.cutoutPixelSize = pixels;
+        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"Chủ thể: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
+        if (originalData) {
+            [self saveData:originalData toPath:DWCutoutImagePath];
+        } else {
+            NSData *png = UIImagePNGRepresentation(image);
+            if (png) [self saveData:png toPath:DWCutoutImagePath];
         }
     }
 
-    // --- Buoc 2: fallback — do vung noi bat nhat trong anh ---
-    VNGenerateObjectnessBasedSaliencyImageRequest *salReq = [[VNGenerateObjectnessBasedSaliencyImageRequest alloc] init];
-    // (bo qua imageCropAndScaleOption o day cung vi ly do tuong tu o tren)
-    NSError *err2 = nil;
-    [handler performRequests:@[salReq] error:&err2];
-    VNSaliencyImageObservation *obs = salReq.results.firstObject;
+    [self updatePreviewAndState];
+}
 
-    if (!obs || !obs.pixelBuffer) {
-        if (outError) *outError = err2 ?: [NSError errorWithDomain:@"DepthWallpaper" code:2
-                                                            userInfo:@{NSLocalizedDescriptionKey: @"Khong tim thay chu the noi bat nao trong anh"}];
-        CGImageRelease(canonicalCG);
-        return nil;
+- (BOOL)imageHasAlpha:(CGImageRef)image {
+    CGImageAlphaInfo alpha = CGImageGetAlphaInfo(image);
+    switch (alpha) {
+        case kCGImageAlphaFirst:
+        case kCGImageAlphaLast:
+        case kCGImageAlphaPremultipliedFirst:
+        case kCGImageAlphaPremultipliedLast:
+        case kCGImageAlphaOnly:
+            return YES;
+        default:
+            return NO;
     }
+}
 
-    if (outUsedPerson) *outUsedPerson = NO;
-    // Saliency map thuong co do phan giai rat thap va it sac net — lam mem vien
-    // nhieu hon (sigma lon hon) de tranh rang cua kho thay.
-    CIImage *sourceCI = [CIImage imageWithCGImage:cgImage];
-    if (!sourceCI) {
-        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:4
-                                                    userInfo:@{NSLocalizedDescriptionKey: @"Khong tao duoc anh xu ly"}];
-        CGImageRelease(canonicalCG);
-        return nil;
+- (void)updatePreviewAndState {
+    if (self.wallpaperPreview && self.cutoutPreview) {
+        BOOL sameSize = CGSizeEqualToSize(self.wallpaperPixelSize, self.cutoutPixelSize);
+        if (!sameSize) {
+            self.statusLabel.text = [NSString stringWithFormat:@"⚠️ Không khớp kích thước. Nền: %.0f×%.0f — Chủ thể: %.0f×%.0f. Hãy chọn lại 2 ảnh cùng pixel.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height, self.cutoutPixelSize.width, self.cutoutPixelSize.height];
+            self.previewView.image = self.wallpaperPreview;
+            [self saveMetadataWithAspectMatch:NO];
+            return;
+        }
+
+        self.previewView.image = [self compositePreviewWithBackground:self.wallpaperPreview cutout:self.cutoutPreview];
+        self.statusLabel.text = [NSString stringWithFormat:@"✓ Hai ảnh khớp %.0f × %.0f px. Không resize — PNG chủ thể được giữ nguyên.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
+        [self saveMetadataWithAspectMatch:YES];
+    } else if (self.wallpaperPreview) {
+        self.previewView.image = self.wallpaperPreview;
+        self.statusLabel.text = @"Đã chọn hình nền. Bây giờ chọn PNG chủ thể đã tách nền.";
+    } else if (self.cutoutPreview) {
+        self.previewView.image = self.cutoutPreview;
+        self.statusLabel.text = @"Đã chọn PNG chủ thể. Bây giờ chọn hình nền gốc cùng độ phân giải.";
     }
-    UIImage *finalImage = [self compositeImage:sourceCI withMask:obs.pixelBuffer softenEdge:4.0];
-    CGImageRelease(canonicalCG);
-    return finalImage;
 }
 
-- (NSString *)hardwareMachineIdentifier {
-    size_t size = 0;
-    sysctlbyname("hw.machine", NULL, &size, NULL, 0);
-    if (size == 0) return @"";
-    char *machine = calloc(1, size);
-    if (!machine) return @"";
-    sysctlbyname("hw.machine", machine, &size, NULL, 0);
-    NSString *identifier = [NSString stringWithUTF8String:machine] ?: @"";
-    free(machine);
-    return identifier;
+- (UIImage *)compositePreviewWithBackground:(UIImage *)background cutout:(UIImage *)cutout {
+    CGSize size = background.size;
+    UIGraphicsBeginImageContextWithOptions(size, YES, 1.0);
+    [background drawInRect:(CGRect){CGPointZero, size}];
+    [cutout drawInRect:(CGRect){CGPointZero, size}];
+    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result;
 }
 
-- (BOOL)maskHasReasonableCoverage:(CVPixelBufferRef)maskBuffer {
-    CIImage *maskCI = [CIImage imageWithCVPixelBuffer:maskBuffer];
-    CIContext *ctx = [CIContext contextWithOptions:nil];
-    CIImage *avgImg = [maskCI imageByApplyingFilter:@"CIAreaAverage"
-                                  withInputParameters:@{kCIInputExtentKey: [CIVector vectorWithCGRect:maskCI.extent]}];
-    uint8_t bitmap[4] = {0, 0, 0, 0};
-    [ctx render:avgImg toBitmap:bitmap rowBytes:4 bounds:CGRectMake(0, 0, 1, 1) format:kCIFormatRGBA8 colorSpace:nil];
-    CGFloat avgBrightness = bitmap[0] / 255.0;
-    return avgBrightness > 0.015; // nguong rat thap, chi loai truong hop mask hoan toan rong (khong co nguoi)
-}
+#pragma mark - Persistence
 
-- (UIImage *)compositeImage:(CIImage *)sourceCI withMask:(CVPixelBufferRef)maskBuffer softenEdge:(CGFloat)sigma {
-    CIImage *maskCI = [CIImage imageWithCVPixelBuffer:maskBuffer];
+- (void)loadExistingState {
+    NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:DWMetadataPath];
+    self.enabledSwitch.on = meta[DWMetaKeyEnabled] ? [meta[DWMetaKeyEnabled] boolValue] : YES;
 
-    CGFloat sx = sourceCI.extent.size.width / MAX(maskCI.extent.size.width, 1);
-    CGFloat sy = sourceCI.extent.size.height / MAX(maskCI.extent.size.height, 1);
-    CIImage *scaledMask = [maskCI imageByApplyingTransform:CGAffineTransformMakeScale(sx, sy)];
-    if (sigma > 0) {
-        scaledMask = [scaledMask imageByApplyingGaussianBlurWithSigma:sigma];
+    NSData *bgData = [NSData dataWithContentsOfFile:DWWallpaperImagePath options:NSDataReadingMappedIfSafe error:nil];
+    NSData *cutData = [NSData dataWithContentsOfFile:DWCutoutImagePath options:NSDataReadingMappedIfSafe error:nil];
+    UIImage *bg = bgData ? [UIImage imageWithData:bgData scale:1.0] : nil;
+    UIImage *cut = cutData ? [UIImage imageWithData:cutData scale:1.0] : nil;
+    if (bg.CGImage) {
+        self.wallpaperPreview = bg;
+        self.wallpaperPixelSize = CGSizeMake(CGImageGetWidth(bg.CGImage), CGImageGetHeight(bg.CGImage));
+        self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px — giữ nguyên", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
     }
-
-    CIFilter *blend = [CIFilter filterWithName:@"CIBlendWithMask"];
-    [blend setValue:sourceCI forKey:kCIInputImageKey];
-    [blend setValue:[CIImage imageWithColor:[CIColor colorWithRed:0 green:0 blue:0 alpha:0]] forKey:kCIInputBackgroundImageKey];
-    [blend setValue:scaledMask forKey:kCIInputMaskImageKey];
-    CIImage *result = blend.outputImage;
-    result = [result imageByCroppingToRect:sourceCI.extent];
-
-    CIContext *ctx = [CIContext contextWithOptions:nil];
-    CGImageRef cgImg = [ctx createCGImage:result fromRect:result.extent];
-    if (!cgImg) return nil;
-    UIImage *img = [UIImage imageWithCGImage:cgImg];
-    CGImageRelease(cgImg);
-    return img;
+    if (cut.CGImage) {
+        self.cutoutPreview = cut;
+        self.cutoutPixelSize = CGSizeMake(CGImageGetWidth(cut.CGImage), CGImageGetHeight(cut.CGImage));
+        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"Chủ thể: %.0f × %.0f px — giữ nguyên", self.cutoutPixelSize.width, self.cutoutPixelSize.height];
+    }
+    [self updatePreviewAndState];
 }
 
-#pragma mark - Luu ket qua ra thu muc dung chung (de Tweak.x doc duoc)
-
-- (void)sliderChanged {
-    [self saveMetadataOnly];
-}
-
-- (void)saveMetadataOnly {
-    NSMutableDictionary *meta = [NSMutableDictionary dictionary];
-    meta[DWMetaKeyYOffsetRatio] = @(self.yOffsetSlider.value);
-    meta[DWMetaKeyScale] = @(self.scaleSlider.value);
-    meta[DWMetaKeyEnabled] = @(self.enabledSwitch.isOn);
+- (void)saveData:(NSData *)data toPath:(NSString *)path {
+    if (!data) return;
     [self ensureSharedDirectoryExists];
+    [data writeToFile:path options:NSDataWritingAtomic error:nil];
+}
+
+- (void)saveMetadataWithAspectMatch:(BOOL)match {
+    [self ensureSharedDirectoryExists];
+    NSMutableDictionary *meta = [NSMutableDictionary dictionary];
+    meta[DWMetaKeyEnabled] = @(self.enabledSwitch.isOn);
+    meta[DWMetaKeyAspectMatch] = @(match);
+    if (!CGSizeEqualToSize(self.wallpaperPixelSize, CGSizeZero)) {
+        meta[DWMetaKeyWallpaperWidth] = @(self.wallpaperPixelSize.width);
+        meta[DWMetaKeyWallpaperHeight] = @(self.wallpaperPixelSize.height);
+    }
+    if (!CGSizeEqualToSize(self.cutoutPixelSize, CGSizeZero)) {
+        meta[DWMetaKeyCutoutWidth] = @(self.cutoutPixelSize.width);
+        meta[DWMetaKeyCutoutHeight] = @(self.cutoutPixelSize.height);
+    }
     [meta writeToFile:DWMetadataPath atomically:YES];
     [self notifyTweakToReload];
 }
 
-- (void)saveCutout:(UIImage *)cutout {
-    [self ensureSharedDirectoryExists];
-    NSData *pngData = UIImagePNGRepresentation(cutout);
-    [pngData writeToFile:DWCutoutImagePath atomically:YES];
-    [self saveMetadataOnly]; // luu luon vi tri/kich thuoc hien tai cung luc
+- (void)enabledChanged {
+    [self saveMetadataWithAspectMatch:CGSizeEqualToSize(self.wallpaperPixelSize, self.cutoutPixelSize)];
 }
 
 - (void)ensureSharedDirectoryExists {
-    [[NSFileManager defaultManager] createDirectoryAtPath:DWSharedDirectory
-                                withIntermediateDirectories:YES
-                                                 attributes:nil
-                                                      error:nil];
+    [[NSFileManager defaultManager] createDirectoryAtPath:DWSharedDirectory withIntermediateDirectories:YES attributes:nil error:nil];
 }
 
 - (void)notifyTweakToReload {
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
-                                          DWReloadNotification, NULL, NULL, YES);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), DWReloadNotification, NULL, NULL, YES);
 }
 
 @end
