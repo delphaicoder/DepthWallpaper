@@ -217,14 +217,24 @@
     VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCIImage:ciImage options:@{}];
 
     // --- Buoc 1: thu nhan dien NGUOI ---
-    if (@available(iOS 15.0, *)) {
-        VNGeneratePersonSegmentationRequest *personReq = [[VNGeneratePersonSegmentationRequest alloc] init];
-        personReq.qualityLevel = VNGeneratePersonSegmentationRequestQualityLevelAccurate;
-        personReq.outputPixelFormat = kCVPixelFormatType_OneComponent8;
+    // Dung NSClassFromString thay vi viet thang ten class — vi SDK 14.5 dung de
+    // build (tranh loi parse header cua toolchain) khong co THU VIEN LIEN KET
+    // (linking stub) cho class nay (chi moi co tu SDK iOS 15). Viet thang ten
+    // class se khien "ld" bao loi "symbol not found" luc lien ket. Lay class
+    // qua ten chuoi thi khong can trinh lien ket biet truoc — luc chay that tren
+    // may iOS 15+ van tim thay va goi dung class that cua he thong.
+    Class personReqClass = NSClassFromString(@"VNGeneratePersonSegmentationRequest");
+    if (personReqClass) {
+        id personReq = [[personReqClass alloc] init];
+        // Dung cu phap ngoac (khong phai dot-syntax) vi personReq duoc khai bao
+        // kieu "id" — dot-syntax can biet kieu tinh, ngoac thi khong can.
+        [personReq setQualityLevel:VNGeneratePersonSegmentationRequestQualityLevelAccurate];
+        [personReq setOutputPixelFormat:kCVPixelFormatType_OneComponent8];
 
         NSError *err1 = nil;
         [handler performRequests:@[personReq] error:&err1];
-        CVPixelBufferRef maskBuf = personReq.results.firstObject.pixelBuffer;
+        VNPixelBufferObservation *firstObs = [[personReq results] firstObject];
+        CVPixelBufferRef maskBuf = firstObs.pixelBuffer;
 
         if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
             if (outUsedPerson) *outUsedPerson = YES;
