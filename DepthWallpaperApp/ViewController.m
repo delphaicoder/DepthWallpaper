@@ -218,8 +218,15 @@
     self.statusLabel.text = @"Dang xu ly... co the mat vai giay tren iPad Air 2 (chip cu).";
     self.pickButton.enabled = NO;
 
-    // Giam kich thuoc truoc khi xu ly de tranh qua tai RAM/CPU tren chip cu (A8X).
-    UIImage *resized = [self imageByLimitingLongestSide:sourceImage to:768];
+    // Chuan hoa anh ve pixel size that (khong dung UIImage.size theo points) va
+    // dat scale=1.0 de Vision khong nhan nham anh Retina thanh anh nhieu nghin px.
+    // Tren A8X giu toi da 640 px de giam peak RAM/CPU.
+    UIImage *resized = [self imageByLimitingLongestSide:sourceImage to:512];
+    if (!resized || !resized.CGImage) {
+        self.pickButton.enabled = YES;
+        self.statusLabel.text = @"Khong the chuan hoa anh nay. Thu mot anh khac.";
+        return;
+    }
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
         @autoreleasepool {
@@ -247,15 +254,30 @@
 }
 
 - (UIImage *)imageByLimitingLongestSide:(UIImage *)img to:(CGFloat)maxSide {
-    CGFloat longest = MAX(img.size.width, img.size.height);
-    if (longest <= maxSide) return img;
-    CGFloat scale = maxSide / longest;
-    CGSize newSize = CGSizeMake(img.size.width * scale, img.size.height * scale);
-    UIGraphicsImageRendererFormat *fmt = [UIGraphicsImageRendererFormat preferredFormat];
-    UIGraphicsImageRenderer *renderer = [[UIGraphicsImageRenderer alloc] initWithSize:newSize format:fmt];
-    return [renderer imageWithActions:^(UIGraphicsImageRendererContext *ctx) {
-        [img drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
-    }];
+    CGImageRef sourceCG = img.CGImage;
+    if (!sourceCG) return nil;
+
+    // UIImage.size la points; Vision co the nhan anh Retina thanh anh rat lon.
+    // Luon tinh theo pixel va xuat scale=1.0, tao anh RGBA tieu chuan.
+    CGFloat pixelWidth = (CGFloat)CGImageGetWidth(sourceCG);
+    CGFloat pixelHeight = (CGFloat)CGImageGetHeight(sourceCG);
+    CGFloat longest = MAX(pixelWidth, pixelHeight);
+    CGFloat factor = (longest > maxSide) ? (maxSide / longest) : 1.0;
+    CGSize newSize = CGSizeMake(MAX(1.0, floor(pixelWidth * factor)),
+                                MAX(1.0, floor(pixelHeight * factor)));
+
+    UIGraphicsBeginImageContextWithOptions(newSize, NO, 1.0);
+    CGContextRef ctx = UIGraphicsGetCurrentContext();
+    if (!ctx) {
+        UIGraphicsEndImageContext();
+        return nil;
+    }
+    [[UIColor clearColor] setFill];
+    CGContextFillRect(ctx, CGRectMake(0, 0, newSize.width, newSize.height));
+    [img drawInRect:CGRectMake(0, 0, newSize.width, newSize.height)];
+    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result;
 }
 
 // Tra ve anh cutout (nen trong suot, chi giu chu the) hoac nil neu that bai.
@@ -266,14 +288,19 @@
 - (UIImage *)generateCutoutFromImage:(UIImage *)image
               usedPersonSegmentation:(BOOL *)outUsedPerson
                                 error:(NSError **)outError {
-    CIImage *ciImage = [[CIImage alloc] initWithImage:image];
-    if (!ciImage) {
-        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:1
-                                                    userInfo:@{NSLocalizedDescriptionKey: @"Khong doc duoc anh"}];
+    // Dung CGImage da chuan hoa thay vi tao CIImage ngay tu dau de tranh
+    // CoreImage phai khoi tao GPU context truoc khi Vision chay.
+    // va tranh loi "failed to scale the input image" voi anh Retina / mau dac biet.
+    CGImageRef cgImage = image.CGImage;
+    if (!cgImage) {
+        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:3
+                                                    userInfo:@{NSLocalizedDescriptionKey: @"Anh khong co CGImage hop le"}];
         return nil;
     }
+    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCGImage:cgImage options:@{}];
 
-    VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCIImage:ciImage options:@{}];
+    // Chi tao CIImage sau khi Vision request thanh cong/that bai, de input path
+    // cua Vision hoan toan doc lap voi CoreImage.
 
     // --- Buoc 1: tach nguoi ---
     // iPad Air 2 (iPad5,4 / A8X) tren iOS 15.8.x co the SIGSEGV trong CoreImage
@@ -293,6 +320,9 @@
             if (personReq && [personReq respondsToSelector:@selector(setOutputPixelFormat:)]) {
                 [personReq setOutputPixelFormat:kCVPixelFormatType_OneComponent8];
             }
+            if (personReq && [personReq respondsToSelector:@selector(setImageCropAndScaleOption:)]) {
+                [(VNImageBasedRequest *)personReq setImageCropAndScaleOption:VNImageCropAndScaleOptionScaleFit];
+            }
 
             NSError *err1 = nil;
             BOOL ok = [handler performRequests:@[personReq] error:&err1];
@@ -301,7 +331,8 @@
                 CVPixelBufferRef maskBuf = firstObs ? firstObs.pixelBuffer : NULL;
                 if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
                     if (outUsedPerson) *outUsedPerson = YES;
-                    UIImage *cutout = [self compositeImage:ciImage withMask:maskBuf softenEdge:2.0];
+                    CIImage *sourceCI = [CIImage imageWithCGImage:cgImage];
+                    UIImage *cutout = sourceCI ? [self compositeImage:sourceCI withMask:maskBuf softenEdge:2.0] : nil;
                     if (cutout) return cutout;
                 }
             }
@@ -310,6 +341,7 @@
 
     // --- Buoc 2: fallback — do vung noi bat nhat trong anh ---
     VNGenerateObjectnessBasedSaliencyImageRequest *salReq = [[VNGenerateObjectnessBasedSaliencyImageRequest alloc] init];
+    salReq.imageCropAndScaleOption = VNImageCropAndScaleOptionScaleFit;
     NSError *err2 = nil;
     [handler performRequests:@[salReq] error:&err2];
     VNSaliencyImageObservation *obs = salReq.results.firstObject;
@@ -323,7 +355,13 @@
     if (outUsedPerson) *outUsedPerson = NO;
     // Saliency map thuong co do phan giai rat thap va it sac net — lam mem vien
     // nhieu hon (sigma lon hon) de tranh rang cua kho thay.
-    return [self compositeImage:ciImage withMask:obs.pixelBuffer softenEdge:6.0];
+    CIImage *sourceCI = [CIImage imageWithCGImage:cgImage];
+    if (!sourceCI) {
+        if (outError) *outError = [NSError errorWithDomain:@"DepthWallpaper" code:4
+                                                    userInfo:@{NSLocalizedDescriptionKey: @"Khong tao duoc anh xu ly"}];
+        return nil;
+    }
+    return [self compositeImage:sourceCI withMask:obs.pixelBuffer softenEdge:4.0];
 }
 
 - (NSString *)hardwareMachineIdentifier {
