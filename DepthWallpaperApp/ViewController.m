@@ -1,12 +1,12 @@
 #import "ViewController.h"
 #import <PhotosUI/PhotosUI.h>
-#import <ImageIO/ImageIO.h>
 #import "../DWShared.h"
 
 @interface ViewController () <PHPickerViewControllerDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIView *contentView;
-@property (nonatomic, strong) UIImageView *previewView;
+@property (nonatomic, strong) UIImageView *previewBackgroundView;
+@property (nonatomic, strong) UIImageView *previewCutoutView;
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *wallpaperButton;
 @property (nonatomic, strong) UIButton *cutoutButton;
@@ -18,8 +18,6 @@
 @property (nonatomic, strong) UIImage *cutoutPreview;
 @property (nonatomic) CGSize wallpaperPixelSize;
 @property (nonatomic) CGSize cutoutPixelSize;
-
-- (UIButton *)makeButtonWithTitle:(NSString *)title action:(SEL)action;
 @end
 
 @implementation ViewController
@@ -44,13 +42,21 @@
     self.contentView.translatesAutoresizingMaskIntoConstraints = NO;
     [self.scrollView addSubview:self.contentView];
 
-    self.previewView = [[UIImageView alloc] init];
-    self.previewView.translatesAutoresizingMaskIntoConstraints = NO;
-    self.previewView.backgroundColor = UIColor.secondarySystemBackgroundColor;
-    self.previewView.layer.cornerRadius = 16.0;
-    self.previewView.clipsToBounds = YES;
-    self.previewView.contentMode = UIViewContentModeScaleAspectFit;
-    [self.contentView addSubview:self.previewView];
+    // Preview giữ đúng tỉ lệ ảnh đã chọn; hai ảnh được chồng 1:1, không AI,
+    // không resize/crop chủ thể. Khi cả hai đã chọn thì cutout nằm trên nền.
+    self.previewBackgroundView = [[UIImageView alloc] init];
+    self.previewBackgroundView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.previewBackgroundView.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    self.previewBackgroundView.contentMode = UIViewContentModeScaleAspectFit;
+    self.previewBackgroundView.clipsToBounds = YES;
+    self.previewBackgroundView.layer.cornerRadius = 16.0;
+    [self.contentView addSubview:self.previewBackgroundView];
+
+    self.previewCutoutView = [[UIImageView alloc] init];
+    self.previewCutoutView.translatesAutoresizingMaskIntoConstraints = NO;
+    self.previewCutoutView.contentMode = UIViewContentModeScaleAspectFit;
+    self.previewCutoutView.clipsToBounds = YES;
+    [self.contentView addSubview:self.previewCutoutView];
 
     self.statusLabel = [[UILabel alloc] init];
     self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
@@ -58,7 +64,7 @@
     self.statusLabel.textAlignment = NSTextAlignmentCenter;
     self.statusLabel.font = [UIFont systemFontOfSize:14.0];
     self.statusLabel.textColor = UIColor.secondaryLabelColor;
-    self.statusLabel.text = @"Chọn 2 ảnh cùng độ phân giải: hình nền gốc + PNG đã tách nền. App sẽ giữ nguyên kích thước, không resize chủ thể.";
+    self.statusLabel.text = @"Chọn hình nền gốc và PNG đã tách nền. Hai ảnh phải cùng kích thước pixel.";
     [self.contentView addSubview:self.statusLabel];
 
     self.wallpaperButton = [self makeButtonWithTitle:@"1. Chọn hình nền gốc" action:@selector(selectWallpaper)];
@@ -98,13 +104,18 @@
         [self.contentView.bottomAnchor constraintEqualToAnchor:self.scrollView.contentLayoutGuide.bottomAnchor],
         [self.contentView.widthAnchor constraintEqualToAnchor:self.scrollView.frameLayoutGuide.widthAnchor],
 
-        [self.previewView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
-        [self.previewView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
-        [self.previewView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
-        [self.previewView.heightAnchor constraintEqualToAnchor:self.previewView.widthAnchor multiplier:0.5625],
-        [self.previewView.heightAnchor constraintLessThanOrEqualToConstant:360],
+        [self.previewBackgroundView.topAnchor constraintEqualToAnchor:self.contentView.topAnchor constant:16],
+        [self.previewBackgroundView.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:20],
+        [self.previewBackgroundView.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-20],
+        [self.previewBackgroundView.heightAnchor constraintEqualToAnchor:self.previewBackgroundView.widthAnchor multiplier:0.5625],
+        [self.previewBackgroundView.heightAnchor constraintLessThanOrEqualToConstant:320],
 
-        [self.statusLabel.topAnchor constraintEqualToAnchor:self.previewView.bottomAnchor constant:12],
+        [self.previewCutoutView.leadingAnchor constraintEqualToAnchor:self.previewBackgroundView.leadingAnchor],
+        [self.previewCutoutView.trailingAnchor constraintEqualToAnchor:self.previewBackgroundView.trailingAnchor],
+        [self.previewCutoutView.topAnchor constraintEqualToAnchor:self.previewBackgroundView.topAnchor],
+        [self.previewCutoutView.bottomAnchor constraintEqualToAnchor:self.previewBackgroundView.bottomAnchor],
+
+        [self.statusLabel.topAnchor constraintEqualToAnchor:self.previewBackgroundView.bottomAnchor constant:12],
         [self.statusLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
         [self.statusLabel.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
 
@@ -158,23 +169,24 @@
 
 - (BOOL)shouldAutorotate { return YES; }
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
+- (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation { return UIInterfaceOrientationLandscapeLeft; }
 
 #pragma mark - Picker
 
 - (void)selectWallpaper {
     self.pickerMode = @"wallpaper";
-    [self presentPickerAllowMultiple:NO];
+    [self presentPicker];
 }
 
 - (void)selectCutout {
     self.pickerMode = @"cutout";
-    [self presentPickerAllowMultiple:NO];
+    [self presentPicker];
 }
 
-- (void)presentPickerAllowMultiple:(BOOL)allowMultiple {
+- (void)presentPicker {
     PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
     configuration.filter = [PHPickerFilter imagesFilter];
-    configuration.selectionLimit = allowMultiple ? 0 : 1;
+    configuration.selectionLimit = 1;
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
@@ -186,87 +198,68 @@
     if (!result) return;
 
     NSItemProvider *provider = result.itemProvider;
-    self.statusLabel.text = @"Đang đọc ảnh gốc, không resize...";
+    NSString *mode = [self.pickerMode copy];
+    self.statusLabel.text = [mode isEqualToString:@"cutout"] ? @"Đang đọc PNG chủ thể..." : @"Đang đọc hình nền...";
     self.wallpaperButton.enabled = NO;
     self.cutoutButton.enabled = NO;
 
-    // Prefer the original file representation so pixel dimensions/alpha and
-    // the cutout PNG are preserved instead of being recompressed through UIImage.
-    NSString *typeIdentifier = nil;
-    if ([self.pickerMode isEqualToString:@"cutout"]) {
-        typeIdentifier = @"public.png";
-    } else {
-        typeIdentifier = @"public.image";
-    }
+    // Ưu tiên file gốc để tránh UIImage decode/re-encode làm mất alpha hoặc
+    // thay đổi kích thước. Với cutout, chỉ nhận public.png khi có sẵn.
+    NSString *identifier = [mode isEqualToString:@"cutout"] ? @"public.png" : @"public.image";
 
-    [provider loadFileRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
-        if (!url) {
-            // Fallback to decoded UIImage when Photos does not offer a file representation.
-            [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage * _Nullable image, NSError * _Nullable imageError) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.wallpaperButton.enabled = YES;
-                    self.cutoutButton.enabled = YES;
-                    if (image) {
-                        [self handleImage:image mode:self.pickerMode originalData:nil typeIdentifier:typeIdentifier];
-                    } else {
-                        self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", imageError.localizedDescription ?: error.localizedDescription ?: @"unknown"];
-                    }
-                });
-            }];
+    [provider loadFileRepresentationForTypeIdentifier:identifier completionHandler:^(NSURL *url, NSError *error) {
+        if (url) {
+            NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:nil];
+            UIImage *image = data ? [UIImage imageWithData:data scale:1.0] : nil;
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.wallpaperButton.enabled = YES;
+                self.cutoutButton.enabled = YES;
+                if (!image || !image.CGImage) {
+                    self.statusLabel.text = @"Không đọc được file ảnh. Hãy thử ảnh JPG/PNG khác.";
+                    return;
+                }
+                [self handleSelectedImage:image data:data mode:mode];
+            });
             return;
         }
 
-        NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:nil];
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.wallpaperButton.enabled = YES;
-            self.cutoutButton.enabled = YES;
-            if (!data) {
-                self.statusLabel.text = @"Không đọc được file ảnh gốc.";
-                return;
-            }
-            UIImage *image = [UIImage imageWithData:data scale:1.0];
-            [self handleImage:image mode:self.pickerMode originalData:data typeIdentifier:typeIdentifier];
-        });
+        [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError *imageError) {
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.wallpaperButton.enabled = YES;
+                self.cutoutButton.enabled = YES;
+                if (!image || !image.CGImage) {
+                    self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", imageError.localizedDescription ?: error.localizedDescription ?: @"unknown"];
+                    return;
+                }
+                NSData *png = UIImagePNGRepresentation(image);
+                [self handleSelectedImage:image data:png mode:mode];
+            });
+        }];
     }];
 }
 
-#pragma mark - Pair processing (NO Vision / NO resize)
-
-- (void)handleImage:(UIImage *)image mode:(NSString *)mode originalData:(NSData *)originalData typeIdentifier:(NSString *)typeIdentifier {
-    if (!image || !image.CGImage) {
-        self.statusLabel.text = @"Ảnh không có CGImage hợp lệ.";
-        return;
-    }
-
-    CGSize pixels = CGSizeMake(CGImageGetWidth(image.CGImage), CGImageGetHeight(image.CGImage));
+- (void)handleSelectedImage:(UIImage *)image data:(NSData *)data mode:(NSString *)mode {
+    CGSize pixels = CGSizeMake((CGFloat)CGImageGetWidth(image.CGImage), (CGFloat)CGImageGetHeight(image.CGImage));
 
     if ([mode isEqualToString:@"cutout"] && ![self imageHasAlpha:image.CGImage]) {
-        self.statusLabel.text = @"Ảnh chủ thể phải là PNG có nền trong suốt (alpha).";
+        self.statusLabel.text = @"PNG chủ thể phải có nền trong suốt (alpha).";
         return;
     }
+
+    [self ensureSharedDirectoryExists];
 
     if ([mode isEqualToString:@"wallpaper"]) {
         self.wallpaperPreview = image;
         self.wallpaperPixelSize = pixels;
         self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
-        if (originalData) {
-            [self saveData:originalData toPath:DWWallpaperImagePath];
-        } else {
-            NSData *png = UIImagePNGRepresentation(image);
-            if (png) [self saveData:png toPath:DWWallpaperImagePath];
-        }
+        NSData *saveData = data ?: UIImagePNGRepresentation(image);
+        if (saveData) [self saveData:saveData toPath:DWWallpaperImagePath];
     } else {
-        // The selected PNG is stored byte-for-byte when Photos provides the
-        // original file. No crop, resize or re-encoding of the cutout.
         self.cutoutPreview = image;
         self.cutoutPixelSize = pixels;
-        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"Chủ thể: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
-        if (originalData) {
-            [self saveData:originalData toPath:DWCutoutImagePath];
-        } else {
-            NSData *png = UIImagePNGRepresentation(image);
-            if (png) [self saveData:png toPath:DWCutoutImagePath];
-        }
+        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"PNG chủ thể: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
+        NSData *saveData = data ?: UIImagePNGRepresentation(image);
+        if (saveData) [self saveData:saveData toPath:DWCutoutImagePath];
     }
 
     [self updatePreviewAndState];
@@ -290,32 +283,26 @@
     if (self.wallpaperPreview && self.cutoutPreview) {
         BOOL sameSize = CGSizeEqualToSize(self.wallpaperPixelSize, self.cutoutPixelSize);
         if (!sameSize) {
-            self.statusLabel.text = [NSString stringWithFormat:@"⚠️ Không khớp kích thước. Nền: %.0f×%.0f — Chủ thể: %.0f×%.0f. Hãy chọn lại 2 ảnh cùng pixel.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height, self.cutoutPixelSize.width, self.cutoutPixelSize.height];
-            self.previewView.image = self.wallpaperPreview;
+            self.previewCutoutView.image = nil;
+            self.previewBackgroundView.image = self.wallpaperPreview;
+            self.statusLabel.text = [NSString stringWithFormat:@"⚠️ Không khớp kích thước. Nền: %.0f×%.0f — PNG: %.0f×%.0f. Hãy chọn 2 ảnh cùng pixel.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height, self.cutoutPixelSize.width, self.cutoutPixelSize.height];
             [self saveMetadataWithAspectMatch:NO];
             return;
         }
 
-        self.previewView.image = [self compositePreviewWithBackground:self.wallpaperPreview cutout:self.cutoutPreview];
-        self.statusLabel.text = [NSString stringWithFormat:@"✓ Hai ảnh khớp %.0f × %.0f px. Không resize — PNG chủ thể được giữ nguyên.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
+        self.previewBackgroundView.image = self.wallpaperPreview;
+        self.previewCutoutView.image = self.cutoutPreview;
+        self.statusLabel.text = [NSString stringWithFormat:@"✓ Khớp %.0f × %.0f px. Không resize, không crop, không AI. PNG giữ nguyên vị trí.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
         [self saveMetadataWithAspectMatch:YES];
     } else if (self.wallpaperPreview) {
-        self.previewView.image = self.wallpaperPreview;
-        self.statusLabel.text = @"Đã chọn hình nền. Bây giờ chọn PNG chủ thể đã tách nền.";
+        self.previewBackgroundView.image = self.wallpaperPreview;
+        self.previewCutoutView.image = nil;
+        self.statusLabel.text = @"Đã chọn hình nền. Bây giờ chọn PNG chủ thể cùng kích thước pixel.";
     } else if (self.cutoutPreview) {
-        self.previewView.image = self.cutoutPreview;
-        self.statusLabel.text = @"Đã chọn PNG chủ thể. Bây giờ chọn hình nền gốc cùng độ phân giải.";
+        self.previewBackgroundView.image = nil;
+        self.previewCutoutView.image = self.cutoutPreview;
+        self.statusLabel.text = @"Đã chọn PNG chủ thể. Bây giờ chọn hình nền cùng kích thước pixel.";
     }
-}
-
-- (UIImage *)compositePreviewWithBackground:(UIImage *)background cutout:(UIImage *)cutout {
-    CGSize size = background.size;
-    UIGraphicsBeginImageContextWithOptions(size, YES, 1.0);
-    [background drawInRect:(CGRect){CGPointZero, size}];
-    [cutout drawInRect:(CGRect){CGPointZero, size}];
-    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
-    UIGraphicsEndImageContext();
-    return result;
 }
 
 #pragma mark - Persistence
@@ -328,6 +315,7 @@
     NSData *cutData = [NSData dataWithContentsOfFile:DWCutoutImagePath options:NSDataReadingMappedIfSafe error:nil];
     UIImage *bg = bgData ? [UIImage imageWithData:bgData scale:1.0] : nil;
     UIImage *cut = cutData ? [UIImage imageWithData:cutData scale:1.0] : nil;
+
     if (bg.CGImage) {
         self.wallpaperPreview = bg;
         self.wallpaperPixelSize = CGSizeMake(CGImageGetWidth(bg.CGImage), CGImageGetHeight(bg.CGImage));
@@ -336,9 +324,13 @@
     if (cut.CGImage) {
         self.cutoutPreview = cut;
         self.cutoutPixelSize = CGSizeMake(CGImageGetWidth(cut.CGImage), CGImageGetHeight(cut.CGImage));
-        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"Chủ thể: %.0f × %.0f px — giữ nguyên", self.cutoutPixelSize.width, self.cutoutPixelSize.height];
+        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"PNG chủ thể: %.0f × %.0f px — giữ nguyên", self.cutoutPixelSize.width, self.cutoutPixelSize.height];
     }
     [self updatePreviewAndState];
+}
+
+- (void)enabledChanged {
+    [self saveMetadataWithAspectMatch:CGSizeEqualToSize(self.wallpaperPixelSize, self.cutoutPixelSize)];
 }
 
 - (void)saveData:(NSData *)data toPath:(NSString *)path {
@@ -352,6 +344,7 @@
     NSMutableDictionary *meta = [NSMutableDictionary dictionary];
     meta[DWMetaKeyEnabled] = @(self.enabledSwitch.isOn);
     meta[DWMetaKeyAspectMatch] = @(match);
+    meta[DWMetaKeyManualFullResolution] = @YES;
     if (!CGSizeEqualToSize(self.wallpaperPixelSize, CGSizeZero)) {
         meta[DWMetaKeyWallpaperWidth] = @(self.wallpaperPixelSize.width);
         meta[DWMetaKeyWallpaperHeight] = @(self.wallpaperPixelSize.height);
@@ -364,16 +357,16 @@
     [self notifyTweakToReload];
 }
 
-- (void)enabledChanged {
-    [self saveMetadataWithAspectMatch:CGSizeEqualToSize(self.wallpaperPixelSize, self.cutoutPixelSize)];
-}
-
 - (void)ensureSharedDirectoryExists {
-    [[NSFileManager defaultManager] createDirectoryAtPath:DWSharedDirectory withIntermediateDirectories:YES attributes:nil error:nil];
+    [[NSFileManager defaultManager] createDirectoryAtPath:DWSharedDirectory
+                              withIntermediateDirectories:YES
+                                               attributes:nil
+                                                    error:nil];
 }
 
 - (void)notifyTweakToReload {
-    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(), DWReloadNotification, NULL, NULL, YES);
+    CFNotificationCenterPostNotification(CFNotificationCenterGetDarwinNotifyCenter(),
+                                          DWReloadNotification, NULL, NULL, YES);
 }
 
 @end
