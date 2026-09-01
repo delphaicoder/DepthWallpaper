@@ -51,15 +51,16 @@ static void DW_LoadMetadata(BOOL *outEnabled) {
 - (void)setLocked:(BOOL)locked;
 @end
 
+static DWManager *gDWManager = nil;
+static dispatch_once_t gDWManagerOnceToken = 0;
+
 @implementation DWManager
 
 + (instancetype)sharedInstance {
-    static DWManager *inst = nil;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{
-        inst = [DWManager new];
+    dispatch_once(&gDWManagerOnceToken, ^{
+        gDWManager = [DWManager new];
     });
-    return inst;
+    return gDWManager;
 }
 
 - (void)setup {
