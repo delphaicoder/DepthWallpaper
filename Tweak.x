@@ -16,6 +16,7 @@
  */
 
 #import <UIKit/UIKit.h>
+#import <dispatch/dispatch.h>
 #import "DWShared.h"
 
 #pragma mark - Doc metadata + anh cutout
@@ -54,11 +55,10 @@ static void DW_LoadMetadata(BOOL *outEnabled) {
 
 + (instancetype)sharedInstance {
     static DWManager *inst = nil;
-    if (!inst) {
-        @synchronized ([DWManager class]) {
-            if (!inst) inst = [DWManager new];
-        }
-    }
+    static dispatch_once_t onceToken;
+    dispatch_once(&onceToken, ^{
+        inst = [DWManager new];
+    });
     return inst;
 }
 

@@ -75,3 +75,6 @@ này, tab Actions tự build trên Linux, tải `.deb`, cài qua Sileo.
   người): chỉnh số `0.015` trong `maskHasReasonableCoverage:`.
 - Không có Settings.app riêng (theo đúng thói quen các tweak trước — tránh rủi
   ro) — mọi chỉnh sửa làm ngay trong app đi kèm.
+
+
+Version 1.2.6: fixed DWManager singleton to use dispatch_once so the tweak does not emit __cxa_guard_* linker symbols on the provided arm64 toolchain.
