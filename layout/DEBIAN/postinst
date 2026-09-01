@@ -1,0 +1,33 @@
+#!/bin/sh
+# DepthWallpaper: register the rootless app with LaunchServices.
+set +e
+
+APP="/var/jb/Applications/DepthWallpaper.app"
+if [ ! -d "$APP" ]; then
+    APP="/var/jb/Applications/DepthWallpaperApp.app"
+fi
+if [ ! -d "$APP" ]; then
+    APP="/Applications/DepthWallpaper.app"
+fi
+if [ ! -d "$APP" ]; then
+    APP="/Applications/DepthWallpaperApp.app"
+fi
+
+UICACHE=""
+if [ -x /var/jb/usr/bin/uicache ]; then
+    UICACHE=/var/jb/usr/bin/uicache
+elif command -v uicache >/dev/null 2>&1; then
+    UICACHE=$(command -v uicache)
+fi
+
+if [ -n "$UICACHE" ] && [ -d "$APP" ]; then
+    "$UICACHE" -p "$APP" >/dev/null 2>&1 || "$UICACHE" -a >/dev/null 2>&1
+fi
+
+if command -v sbreload >/dev/null 2>&1; then
+    sbreload >/dev/null 2>&1 || true
+else
+    killall -9 SpringBoard >/dev/null 2>&1 || true
+fi
+
+exit 0

@@ -11,7 +11,8 @@
     UIWindowScene *windowScene = (UIWindowScene *)scene;
     self.window = [[UIWindow alloc] initWithWindowScene:windowScene];
     self.window.backgroundColor = UIColor.systemBackgroundColor;
-    self.window.rootViewController = [[ViewController alloc] init];
+    UIViewController *root = [[ViewController alloc] init];
+    self.window.rootViewController = root;
     [self.window makeKeyAndVisible];
 }
 

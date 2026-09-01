@@ -10,6 +10,11 @@
     <string>com.yourname.depthwallpaperapp</string>
     <key>CFBundleInfoDictionaryVersion</key>
     <string>6.0</string>
+    <key>CFBundleIconFiles</key>
+    <array>
+        <string>AppIcon60@2x</string>
+        <string>AppIcon1024</string>
+    </array>
     <key>CFBundleName</key>
     <string>DepthWallpaper</string>
     <key>CFBundleDisplayName</key>
@@ -17,9 +22,9 @@
     <key>CFBundlePackageType</key>
     <string>APPL</string>
     <key>CFBundleShortVersionString</key>
-    <string>1.0.0</string>
+    <string>1.0.2</string>
     <key>CFBundleVersion</key>
-    <string>1.0.0</string>
+    <string>1.0.2</string>
     <key>LSRequiresIPhoneOS</key>
     <true/>
     <key>UIApplicationSceneManifest</key>
@@ -34,7 +39,7 @@
                     <key>UISceneConfigurationName</key>
                     <string>Default Configuration</string>
                     <key>UISceneDelegateClassName</key>
-                    <string>DepthWallpaperApp.SceneDelegate</string>
+                    <string>SceneDelegate</string>
                 </dict>
             </array>
         </dict>
