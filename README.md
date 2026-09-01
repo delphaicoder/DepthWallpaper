@@ -1,4 +1,4 @@
-# DepthWallpaper 1.2.2
+# DepthWallpaper 1.2.3
 
 Landscape-first, full-resolution manual depth wallpaper workflow for iOS/iPadOS 14-16 rootless arm64.
 
@@ -20,3 +20,6 @@ Landscape-first, full-resolution manual depth wallpaper workflow for iOS/iPadOS 
 
 ## Build
 Theos rootless, arm64, minimum iOS 14.0.
+
+
+Build fix: removed the singleton local static object from Tweak.x to avoid clang-10 emitting unresolved __cxa_guard_* symbols.

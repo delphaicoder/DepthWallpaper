@@ -10,20 +10,12 @@
 @interface DWManager : NSObject
 @property (nonatomic, strong) DWOverlayWindow *window;
 @property (nonatomic, strong) UIImageView *cutoutView;
-+ (instancetype)sharedInstance;
 - (void)setup;
 - (void)reloadImage;
 - (void)setLocked:(BOOL)locked;
 @end
 
 @implementation DWManager
-
-+ (instancetype)sharedInstance {
-    static DWManager *instance;
-    static dispatch_once_t onceToken;
-    dispatch_once(&onceToken, ^{ instance = [DWManager new]; });
-    return instance;
-}
 
 - (void)setup {
     dispatch_async(dispatch_get_main_queue(), ^{
@@ -94,21 +86,32 @@
 
 @end
 
+
+static DWManager *gDWManager = nil;
+static dispatch_once_t gDWManagerOnceToken = 0;
+
+static DWManager *DWManagerInstance(void) {
+    dispatch_once(&gDWManagerOnceToken, ^{
+        gDWManager = [DWManager new];
+    });
+    return gDWManager;
+}
+
 static void DW_LockStateChanged(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     BOOL locked = !UIApplication.sharedApplication.isProtectedDataAvailable;
     dispatch_async(dispatch_get_main_queue(), ^{
-        [[DWManager sharedInstance] setLocked:locked];
+        [DWManagerInstance() setLocked:locked];
     });
 }
 
 static void DW_ReloadRequested(CFNotificationCenterRef center, void *observer, CFStringRef name, const void *object, CFDictionaryRef userInfo) {
-    [[DWManager sharedInstance] reloadImage];
+    [DWManagerInstance() reloadImage];
 }
 
 %hook SpringBoard
 - (void)applicationDidFinishLaunching:(id)application {
     %orig;
-    [[DWManager sharedInstance] setup];
+    [DWManagerInstance() setup];
 
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
         DW_LockStateChanged, CFSTR("com.apple.springboard.lockstate"), NULL,
@@ -118,6 +121,6 @@ static void DW_ReloadRequested(CFNotificationCenterRef center, void *observer, C
         CFNotificationSuspensionBehaviorCoalesce);
 
     BOOL locked = !UIApplication.sharedApplication.isProtectedDataAvailable;
-    [[DWManager sharedInstance] setLocked:locked];
+    [DWManagerInstance() setLocked:locked];
 }
 %end

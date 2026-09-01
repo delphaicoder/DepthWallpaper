@@ -18,6 +18,6 @@ include $(THEOS_MAKE_PATH)/application.mk
 TWEAK_NAME = DepthWallpaperTweak
 DepthWallpaperTweak_FILES = Tweak.x
 DepthWallpaperTweak_FRAMEWORKS = UIKit Foundation
-DepthWallpaperTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
+DepthWallpaperTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -x objective-c
 
 include $(THEOS_MAKE_PATH)/tweak.mk

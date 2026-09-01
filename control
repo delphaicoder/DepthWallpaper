@@ -1,6 +1,6 @@
 Package: com.yourname.depthwallpaper
 Name: DepthWallpaper
-Version: 1.2.2
+Version: 1.2.3
 Architecture: iphoneos-arm64
 Description: Depth Effect iOS 16 style using a full-resolution wallpaper plus a user-prepared transparent PNG cutout. No AI segmentation, no resize, no automatic render loop.
 Maintainer: YourName <you@example.com>
