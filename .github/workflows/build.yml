@@ -67,8 +67,17 @@ jobs:
           DEB=$(ls packages/*.deb | head -n1)
           echo "Package: $DEB"
           dpkg-deb -c "$DEB" | tee /tmp/package-list.txt
-          grep -F '/var/jb/Applications/DepthWallpaper.app/DepthWallpaperApp' /tmp/package-list.txt
-          grep -F '/var/jb/Applications/DepthWallpaper.app/Info.plist' /tmp/package-list.txt
+
+          # dpkg-deb -c prints archive paths with a relative ./ prefix on
+          # some versions of dpkg. Extract the package and verify the real
+          # filesystem layout instead of grepping the display output.
+          TMP_VERIFY=$(mktemp -d)
+          trap 'rm -rf "$TMP_VERIFY"' EXIT
+          dpkg-deb -x "$DEB" "$TMP_VERIFY"
+
+          test -x "$TMP_VERIFY/var/jb/Applications/DepthWallpaper.app/DepthWallpaperApp"
+          test -f "$TMP_VERIFY/var/jb/Applications/DepthWallpaper.app/Info.plist"
+          echo "Package layout OK: /var/jb/Applications/DepthWallpaper.app"
 
       - name: Upload .deb artifact
         uses: actions/upload-artifact@v4
