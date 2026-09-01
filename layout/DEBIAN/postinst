@@ -1,5 +1,6 @@
 #!/bin/sh
 # DepthWallpaper: register the rootless app with LaunchServices.
+# IMPORTANT: never restart SpringBoard during package installation.
 set +e
 
 APP="/var/jb/Applications/DepthWallpaper.app"
@@ -20,14 +21,9 @@ elif command -v uicache >/dev/null 2>&1; then
     UICACHE=$(command -v uicache)
 fi
 
+# Register the app if the bundle exists. Do not sbreload/kill SpringBoard here.
 if [ -n "$UICACHE" ] && [ -d "$APP" ]; then
     "$UICACHE" -p "$APP" >/dev/null 2>&1 || "$UICACHE" -a >/dev/null 2>&1
-fi
-
-if command -v sbreload >/dev/null 2>&1; then
-    sbreload >/dev/null 2>&1 || true
-else
-    killall -9 SpringBoard >/dev/null 2>&1 || true
 fi
 
 exit 0

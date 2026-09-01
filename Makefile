@@ -23,6 +23,4 @@ DepthWallpaperTweak_LDFLAGS = -lc++abi
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
-after-install::
-	install.exec "killall -9 SpringBoard"
-	install.exec "killall -9 DepthWallpaperApp || true"
+# No automatic respring: install the package first, then respring manually if needed.
