@@ -5,3 +5,7 @@
 - Uses Vision's FAST quality level for lower CPU/RAM use.
 - Adds an autorelease pool around background image processing.
 - Existing portrait/landscape UI and rootless packaging are preserved.
+
+
+## v1.0.8
+A8X/iPad5,3-5,4 now skips person segmentation entirely because native EXC_BAD_ACCESS cannot be caught with @try/@catch.

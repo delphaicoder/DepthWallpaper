@@ -2,6 +2,7 @@
 #import <Vision/Vision.h>
 #import <CoreImage/CoreImage.h>
 #import "VisionCompat.h"
+#import <sys/sysctl.h>
 #import "../DWShared.h"
 
 @interface ViewController ()
@@ -274,40 +275,36 @@
 
     VNImageRequestHandler *handler = [[VNImageRequestHandler alloc] initWithCIImage:ciImage options:@{}];
 
-    // --- Buoc 1: thu nhan dien NGUOI ---
-    // Dung NSClassFromString thay vi viet thang ten class — vi SDK 14.5 dung de
-    // build (tranh loi parse header cua toolchain) khong co THU VIEN LIEN KET
-    // (linking stub) cho class nay (chi moi co tu SDK iOS 15). Viet thang ten
-    // class se khien "ld" bao loi "symbol not found" luc lien ket. Lay class
-    // qua ten chuoi thi khong can trinh lien ket biet truoc — luc chay that tren
-    // may iOS 15+ van tim thay va goi dung class that cua he thong.
-    Class personReqClass = NSClassFromString(@"VNGeneratePersonSegmentationRequest");
-    if (personReqClass) {
-        @try {
+    // --- Buoc 1: tach nguoi ---
+    // iPad Air 2 (iPad5,4 / A8X) tren iOS 15.8.x co the SIGSEGV trong CoreImage
+    // ngay khi Vision khoi tao VNPersonSegmentationGenerator. Day la native
+    // EXC_BAD_ACCESS nen @try/@catch khong the chan duoc. Vi vay tren A8X,
+    // KHONG khoi tao person segmentation; chuyen thang sang saliency nhe hon.
+    NSString *machine = [self hardwareMachineIdentifier];
+    BOOL isA8X = [machine isEqualToString:@"iPad5,4"] || [machine isEqualToString:@"iPad5,3"];
+
+    if (!isA8X) {
+        Class personReqClass = NSClassFromString(@"VNGeneratePersonSegmentationRequest");
+        if (personReqClass) {
             id personReq = [[personReqClass alloc] init];
-            // A8X/older devices are more reliable with the FAST quality level.
-            // The request is optional; if Vision does not support it at runtime,
-            // fall back cleanly to the saliency pass instead of crashing the app.
-            if ([personReq respondsToSelector:@selector(setQualityLevel:)]) {
+            if (personReq && [personReq respondsToSelector:@selector(setQualityLevel:)]) {
                 [personReq setQualityLevel:VNGeneratePersonSegmentationRequestQualityLevelFast];
             }
-            if ([personReq respondsToSelector:@selector(setOutputPixelFormat:)]) {
+            if (personReq && [personReq respondsToSelector:@selector(setOutputPixelFormat:)]) {
                 [personReq setOutputPixelFormat:kCVPixelFormatType_OneComponent8];
             }
 
             NSError *err1 = nil;
-            [handler performRequests:@[personReq] error:&err1];
-            VNPixelBufferObservation *firstObs = [[personReq results] firstObject];
-            CVPixelBufferRef maskBuf = firstObs ? firstObs.pixelBuffer : NULL;
-
-            if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
-                if (outUsedPerson) *outUsedPerson = YES;
-                UIImage *cutout = [self compositeImage:ciImage withMask:maskBuf softenEdge:2.0];
-                if (cutout) return cutout;
+            BOOL ok = [handler performRequests:@[personReq] error:&err1];
+            if (ok) {
+                VNPixelBufferObservation *firstObs = [[personReq results] firstObject];
+                CVPixelBufferRef maskBuf = firstObs ? firstObs.pixelBuffer : NULL;
+                if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
+                    if (outUsedPerson) *outUsedPerson = YES;
+                    UIImage *cutout = [self compositeImage:ciImage withMask:maskBuf softenEdge:2.0];
+                    if (cutout) return cutout;
+                }
             }
-        } @catch (NSException *exception) {
-            // Some older devices/OS combinations can reject person segmentation
-            // with an Objective-C exception. Never let that terminate the app.
         }
     }
 
@@ -327,6 +324,18 @@
     // Saliency map thuong co do phan giai rat thap va it sac net — lam mem vien
     // nhieu hon (sigma lon hon) de tranh rang cua kho thay.
     return [self compositeImage:ciImage withMask:obs.pixelBuffer softenEdge:6.0];
+}
+
+- (NSString *)hardwareMachineIdentifier {
+    size_t size = 0;
+    sysctlbyname("hw.machine", NULL, &size, NULL, 0);
+    if (size == 0) return @"";
+    char *machine = calloc(1, size);
+    if (!machine) return @"";
+    sysctlbyname("hw.machine", machine, &size, NULL, 0);
+    NSString *identifier = [NSString stringWithUTF8String:machine] ?: @"";
+    free(machine);
+    return identifier;
 }
 
 - (BOOL)maskHasReasonableCoverage:(CVPixelBufferRef)maskBuffer {
