@@ -1,4 +1,4 @@
-# DepthWallpaper 1.2.0
+# DepthWallpaper 1.2.1
 
 Landscape-first, full-resolution manual depth wallpaper workflow for iOS/iPadOS 14-16 rootless arm64.
 

@@ -1,7 +1,6 @@
 #import "ViewController.h"
 #import <PhotosUI/PhotosUI.h>
 #import <ImageIO/ImageIO.h>
-#import <MobileCoreServices/MobileCoreServices.h>
 #import "../DWShared.h"
 
 @interface ViewController () <PHPickerViewControllerDelegate>
@@ -19,6 +18,8 @@
 @property (nonatomic, strong) UIImage *cutoutPreview;
 @property (nonatomic) CGSize wallpaperPixelSize;
 @property (nonatomic) CGSize cutoutPixelSize;
+
+- (UIButton *)makeButtonWithTitle:(NSString *)title action:(SEL)action;
 @end
 
 @implementation ViewController
@@ -193,9 +194,9 @@
     // the cutout PNG are preserved instead of being recompressed through UIImage.
     NSString *typeIdentifier = nil;
     if ([self.pickerMode isEqualToString:@"cutout"]) {
-        typeIdentifier = (__bridge NSString *)kUTTypePNG;
+        typeIdentifier = @"public.png";
     } else {
-        typeIdentifier = (__bridge NSString *)kUTTypeImage;
+        typeIdentifier = @"public.image";
     }
 
     [provider loadFileRepresentationForTypeIdentifier:typeIdentifier completionHandler:^(NSURL * _Nullable url, NSError * _Nullable error) {
