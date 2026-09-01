@@ -1,4 +1,4 @@
-# DepthWallpaper Manual Depth v1.2.4
+# DepthWallpaper Manual Depth v1.2.5
 
 This version intentionally removes the Vision/AI segmentation path.
 

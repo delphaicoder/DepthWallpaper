@@ -19,4 +19,10 @@ static NSString * const DWMetaKeyEnabled      = @"Enabled";
 static NSString * const DWMetaKeyAspectMatch  = @"AspectMatch";
 static NSString * const DWMetaKeyManualFullResolution = @"ManualFullResolution";
 
+static NSString * const DWWallpaperImagePath = @"/var/mobile/Library/Application Support/DepthWallpaper/wallpaper.png";
+static NSString * const DWMetaKeyWallpaperWidth  = @"WallpaperWidth";
+static NSString * const DWMetaKeyWallpaperHeight = @"WallpaperHeight";
+static NSString * const DWMetaKeyCutoutWidth    = @"CutoutWidth";
+static NSString * const DWMetaKeyCutoutHeight   = @"CutoutHeight";
+
 #endif

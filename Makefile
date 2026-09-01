@@ -4,7 +4,7 @@ THEOS_PACKAGE_SCHEME = rootless
 
 include $(THEOS)/makefiles/common.mk
 
-# ==== App chon anh + xu ly Vision framework ====
+# ==== App chon anh + manual full-resolution depth ====
 APPLICATION_NAME = DepthWallpaperApp
 DepthWallpaperApp_FILES = DepthWallpaperApp/main.m DepthWallpaperApp/AppDelegate.m DepthWallpaperApp/SceneDelegate.m DepthWallpaperApp/ViewController.m
 DepthWallpaperApp_FRAMEWORKS = UIKit Foundation PhotosUI
