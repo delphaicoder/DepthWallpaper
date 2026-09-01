@@ -203,38 +203,35 @@
     self.wallpaperButton.enabled = NO;
     self.cutoutButton.enabled = NO;
 
-    // Ưu tiên file gốc để tránh UIImage decode/re-encode làm mất alpha hoặc
-    // thay đổi kích thước. Với cutout, chỉ nhận public.png khi có sẵn.
-    NSString *identifier = [mode isEqualToString:@"cutout"] ? @"public.png" : @"public.image";
+    // Avoid loadFileRepresentationForTypeIdentifier on iOS 15.8.x because
+    // Foundation may abort while cloning the provider URL to a temp folder.
+    // Data representation does not use that temporary-file clone path.
+    NSString *identifier = nil;
+    if ([mode isEqualToString:@"cutout"]) {
+        identifier = [provider hasItemConformingToTypeIdentifier:@"public.png"]
+            ? @"public.png"
+            : @"public.image";
+    } else {
+        identifier = @"public.image";
+    }
 
-    [provider loadFileRepresentationForTypeIdentifier:identifier completionHandler:^(NSURL *url, NSError *error) {
-        if (url) {
-            NSData *data = [NSData dataWithContentsOfURL:url options:NSDataReadingMappedIfSafe error:nil];
-            UIImage *image = data ? [UIImage imageWithData:data scale:1.0] : nil;
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.wallpaperButton.enabled = YES;
-                self.cutoutButton.enabled = YES;
-                if (!image || !image.CGImage) {
-                    self.statusLabel.text = @"Không đọc được file ảnh. Hãy thử ảnh JPG/PNG khác.";
-                    return;
-                }
-                [self handleSelectedImage:image data:data mode:mode];
-            });
-            return;
-        }
+    [provider loadDataRepresentationForTypeIdentifier:identifier
+                                    completionHandler:^(NSData *data, NSError *error) {
+        UIImage *image = data ? [UIImage imageWithData:data scale:1.0] : nil;
 
-        [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage *image, NSError *imageError) {
-            dispatch_async(dispatch_get_main_queue(), ^{
-                self.wallpaperButton.enabled = YES;
-                self.cutoutButton.enabled = YES;
-                if (!image || !image.CGImage) {
-                    self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", imageError.localizedDescription ?: error.localizedDescription ?: @"unknown"];
-                    return;
-                }
-                NSData *png = UIImagePNGRepresentation(image);
-                [self handleSelectedImage:image data:png mode:mode];
-            });
-        }];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.wallpaperButton.enabled = YES;
+            self.cutoutButton.enabled = YES;
+
+            if (!data || !image || !image.CGImage) {
+                self.statusLabel.text = [NSString stringWithFormat:
+                    @"Không đọc được ảnh: %@",
+                    error.localizedDescription ?: @"Photos không cung cấp dữ liệu ảnh hợp lệ."];
+                return;
+            }
+
+            [self handleSelectedImage:image data:data mode:mode];
+        });
     }];
 }
 
@@ -290,9 +287,9 @@
             return;
         }
 
-        self.previewBackgroundView.image = self.wallpaperPreview;
-        self.previewCutoutView.image = self.cutoutPreview;
-        self.statusLabel.text = [NSString stringWithFormat:@"✓ Khớp %.0f × %.0f px. Không resize, không crop, không AI. PNG giữ nguyên vị trí.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
+        self.previewBackgroundView.image = [self previewImageForDisplay:self.wallpaperPreview maxPixelSize:1024];
+        self.previewCutoutView.image = [self previewImageForDisplay:self.cutoutPreview maxPixelSize:1024];
+        self.statusLabel.text = [NSString stringWithFormat:@"✓ Khớp %.0f × %.0f px. Không resize file gốc — preview giảm riêng để tiết kiệm RAM.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
         [self saveMetadataWithAspectMatch:YES];
     } else if (self.wallpaperPreview) {
         self.previewBackgroundView.image = self.wallpaperPreview;
@@ -303,6 +300,23 @@
         self.previewCutoutView.image = self.cutoutPreview;
         self.statusLabel.text = @"Đã chọn PNG chủ thể. Bây giờ chọn hình nền cùng kích thước pixel.";
     }
+}
+
+- (UIImage *)previewImageForDisplay:(UIImage *)image maxPixelSize:(CGFloat)maxPixelSize {
+    if (!image.CGImage) return image;
+    CGFloat pw = (CGFloat)CGImageGetWidth(image.CGImage);
+    CGFloat ph = (CGFloat)CGImageGetHeight(image.CGImage);
+    CGFloat longest = MAX(pw, ph);
+    if (longest <= maxPixelSize) return image;
+
+    CGFloat ratio = maxPixelSize / longest;
+    CGSize size = CGSizeMake(MAX(1.0, floor(pw * ratio)),
+                             MAX(1.0, floor(ph * ratio)));
+    UIGraphicsBeginImageContextWithOptions(size, NO, 1.0);
+    [image drawInRect:(CGRect){CGPointZero, size}];
+    UIImage *result = UIGraphicsGetImageFromCurrentImageContext();
+    UIGraphicsEndImageContext();
+    return result ?: image;
 }
 
 #pragma mark - Persistence

@@ -77,4 +77,7 @@ này, tab Actions tự build trên Linux, tải `.deb`, cài qua Sileo.
   ro) — mọi chỉnh sửa làm ngay trong app đi kèm.
 
 
-Version 1.2.7: fixed DWManager singleton to use dispatch_once so the tweak does not emit __cxa_guard_* linker symbols on the provided arm64 toolchain.
+Version 1.2.8: fixed DWManager singleton to use dispatch_once so the tweak does not emit __cxa_guard_* linker symbols on the provided arm64 toolchain.
+
+
+Version 1.2.8: use NSItemProvider data representation instead of file representation to avoid the iOS 15 Foundation temporary-file clone crash; only the UI preview is downscaled, saved image bytes remain unchanged.
