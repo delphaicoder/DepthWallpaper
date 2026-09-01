@@ -218,28 +218,30 @@
     self.pickButton.enabled = NO;
 
     // Giam kich thuoc truoc khi xu ly de tranh qua tai RAM/CPU tren chip cu (A8X).
-    UIImage *resized = [self imageByLimitingLongestSide:sourceImage to:1024];
+    UIImage *resized = [self imageByLimitingLongestSide:sourceImage to:768];
 
     dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), ^{
-        NSError *pipelineError = nil;
-        BOOL usedPerson = NO;
-        UIImage *cutout = [self generateCutoutFromImage:resized
-                                  usedPersonSegmentation:&usedPerson
-                                                    error:&pipelineError];
+        @autoreleasepool {
+            NSError *pipelineError = nil;
+            BOOL usedPerson = NO;
+            UIImage *cutout = [self generateCutoutFromImage:resized
+                                      usedPersonSegmentation:&usedPerson
+                                                        error:&pipelineError];
 
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.pickButton.enabled = YES;
-            if (!cutout) {
-                self.statusLabel.text = [NSString stringWithFormat:@"Khong tach duoc chu the: %@",
-                                          pipelineError.localizedDescription ?: @"khong ro nguyen nhan"];
-                return;
-            }
-            self.previewView.image = cutout;
-            self.statusLabel.text = usedPerson
-                ? @"Da tach NGUOI thanh cong. Nho DAT anh GOC nay lam hinh nen khoa may trong Cai dat."
-                : @"Khong thay nguoi — da dung do vung noi bat (vd nui/vat cao). Vien co the khong sac net bang truong hop co nguoi.";
-            [self saveCutout:cutout];
-        });
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.pickButton.enabled = YES;
+                if (!cutout) {
+                    self.statusLabel.text = [NSString stringWithFormat:@"Khong tach duoc chu the: %@",
+                                              pipelineError.localizedDescription ?: @"khong ro nguyen nhan"];
+                    return;
+                }
+                self.previewView.image = cutout;
+                self.statusLabel.text = usedPerson
+                    ? @"Da tach NGUOI thanh cong. Nho DAT anh GOC nay lam hinh nen khoa may trong Cai dat."
+                    : @"Da tao vung chu the noi bat. Neu anh co nguoi, thu anh co nguoi ro va it nen roi.";
+                [self saveCutout:cutout];
+            });
+        }
     });
 }
 
@@ -281,20 +283,31 @@
     // may iOS 15+ van tim thay va goi dung class that cua he thong.
     Class personReqClass = NSClassFromString(@"VNGeneratePersonSegmentationRequest");
     if (personReqClass) {
-        id personReq = [[personReqClass alloc] init];
-        // Dung cu phap ngoac (khong phai dot-syntax) vi personReq duoc khai bao
-        // kieu "id" — dot-syntax can biet kieu tinh, ngoac thi khong can.
-        [personReq setQualityLevel:VNGeneratePersonSegmentationRequestQualityLevelAccurate];
-        [personReq setOutputPixelFormat:kCVPixelFormatType_OneComponent8];
+        @try {
+            id personReq = [[personReqClass alloc] init];
+            // A8X/older devices are more reliable with the FAST quality level.
+            // The request is optional; if Vision does not support it at runtime,
+            // fall back cleanly to the saliency pass instead of crashing the app.
+            if ([personReq respondsToSelector:@selector(setQualityLevel:)]) {
+                [personReq setQualityLevel:VNGeneratePersonSegmentationRequestQualityLevelFast];
+            }
+            if ([personReq respondsToSelector:@selector(setOutputPixelFormat:)]) {
+                [personReq setOutputPixelFormat:kCVPixelFormatType_OneComponent8];
+            }
 
-        NSError *err1 = nil;
-        [handler performRequests:@[personReq] error:&err1];
-        VNPixelBufferObservation *firstObs = [[personReq results] firstObject];
-        CVPixelBufferRef maskBuf = firstObs.pixelBuffer;
+            NSError *err1 = nil;
+            [handler performRequests:@[personReq] error:&err1];
+            VNPixelBufferObservation *firstObs = [[personReq results] firstObject];
+            CVPixelBufferRef maskBuf = firstObs ? firstObs.pixelBuffer : NULL;
 
-        if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
-            if (outUsedPerson) *outUsedPerson = YES;
-            return [self compositeImage:ciImage withMask:maskBuf softenEdge:2.0];
+            if (maskBuf && [self maskHasReasonableCoverage:maskBuf]) {
+                if (outUsedPerson) *outUsedPerson = YES;
+                UIImage *cutout = [self compositeImage:ciImage withMask:maskBuf softenEdge:2.0];
+                if (cutout) return cutout;
+            }
+        } @catch (NSException *exception) {
+            // Some older devices/OS combinations can reject person segmentation
+            // with an Objective-C exception. Never let that terminate the app.
         }
     }
 
