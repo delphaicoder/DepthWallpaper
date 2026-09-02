@@ -18,6 +18,9 @@ static NSString * const DWMetaKeyScale        = @"Scale";         // ty le phong
 static NSString * const DWMetaKeyEnabled      = @"Enabled";
 static NSString * const DWMetaKeyAspectMatch  = @"AspectMatch";
 static NSString * const DWMetaKeyManualFullResolution = @"ManualFullResolution";
+static NSString * const DWMetaKeyCutoutCenterX = @"CutoutCenterX";
+static NSString * const DWMetaKeyCutoutCenterY = @"CutoutCenterY";
+static NSString * const DWMetaKeyCutoutScale   = @"CutoutScale";
 
 static NSString * const DWWallpaperImagePath = @"/var/mobile/Library/Application Support/DepthWallpaper/wallpaper.png";
 static NSString * const DWMetaKeyWallpaperWidth  = @"WallpaperWidth";

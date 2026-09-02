@@ -25,9 +25,18 @@ static UIImage *DW_LoadCutoutImage(void) {
     return [UIImage imageWithContentsOfFile:DWCutoutImagePath];
 }
 
-static void DW_LoadMetadata(BOOL *outEnabled) {
-    NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:DWMetadataPath];
+static NSDictionary *DW_LoadMetadata(void) {
+    return [NSDictionary dictionaryWithContentsOfFile:DWMetadataPath] ?: @{};
+}
+
+static void DW_LoadMetadata(BOOL *outEnabled, CGPoint *outCenter, CGFloat *outScale) {
+    NSDictionary *meta = DW_LoadMetadata();
     *outEnabled = meta[DWMetaKeyEnabled] ? [meta[DWMetaKeyEnabled] boolValue] : YES;
+    CGFloat x = meta[DWMetaKeyCutoutCenterX] ? [meta[DWMetaKeyCutoutCenterX] doubleValue] : 0.5;
+    CGFloat y = meta[DWMetaKeyCutoutCenterY] ? [meta[DWMetaKeyCutoutCenterY] doubleValue] : 0.5;
+    CGFloat scale = meta[DWMetaKeyCutoutScale] ? [meta[DWMetaKeyCutoutScale] doubleValue] : 1.0;
+    *outCenter = CGPointMake(MIN(1.5, MAX(-0.5, x)), MIN(1.5, MAX(-0.5, y)));
+    *outScale = MIN(4.0, MAX(0.25, scale));
 }
 
 #pragma mark - DWOverlayWindow
@@ -97,7 +106,9 @@ static dispatch_once_t gDWManagerOnceToken = 0;
 
 - (void)reloadImage {
     BOOL enabled = YES;
-    DW_LoadMetadata(&enabled);
+    CGPoint centerRatio = CGPointMake(0.5, 0.5);
+    CGFloat scale = 1.0;
+    DW_LoadMetadata(&enabled, &centerRatio, &scale);
     UIImage *img = DW_LoadCutoutImage();
 
     if (!img || !enabled || !self.window) {
@@ -105,13 +116,15 @@ static dispatch_once_t gDWManagerOnceToken = 0;
         return;
     }
 
-    // Manual-depth mode: the PNG already has the exact intended position.
-    // Do not apply independent Y offset or scale. Keep one full-screen frame.
+    UIView *root = self.window.rootViewController.view;
     self.cutoutView.image = img;
-    self.cutoutView.frame = self.window.bounds;
-    self.cutoutView.contentMode = UIViewContentModeScaleAspectFill;
-    self.cutoutView.clipsToBounds = YES;
-    self.cutoutView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    self.cutoutView.bounds = root.bounds;
+    self.cutoutView.center = CGPointMake(CGRectGetWidth(root.bounds) * centerRatio.x,
+                                         CGRectGetHeight(root.bounds) * centerRatio.y);
+    self.cutoutView.transform = CGAffineTransformMakeScale(scale, scale);
+    self.cutoutView.contentMode = UIViewContentModeScaleAspectFit;
+    self.cutoutView.clipsToBounds = NO;
+    self.cutoutView.autoresizingMask = UIViewAutoresizingNone;
 }
 
 - (void)setLocked:(BOOL)locked {

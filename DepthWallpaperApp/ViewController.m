@@ -2,7 +2,7 @@
 #import <PhotosUI/PhotosUI.h>
 #import "../DWShared.h"
 
-@interface ViewController () <PHPickerViewControllerDelegate>
+@interface ViewController () <PHPickerViewControllerDelegate, UIGestureRecognizerDelegate>
 @property (nonatomic, strong) UIScrollView *scrollView;
 @property (nonatomic, strong) UIView *contentView;
 @property (nonatomic, strong) UIImageView *previewBackgroundView;
@@ -14,6 +14,11 @@
 @property (nonatomic, strong) UISwitch *enabledSwitch;
 @property (nonatomic, strong) UILabel *wallpaperInfoLabel;
 @property (nonatomic, strong) UILabel *cutoutInfoLabel;
+@property (nonatomic, strong) UIButton *resetCutoutButton;
+@property (nonatomic, strong) UIPanGestureRecognizer *cutoutPanGesture;
+@property (nonatomic, strong) UIPinchGestureRecognizer *cutoutPinchGesture;
+@property (nonatomic) CGPoint cutoutNormalizedCenter;
+@property (nonatomic) CGFloat cutoutScale;
 @property (nonatomic, copy) NSString *pickerMode;
 @property (nonatomic, strong) UIImage *wallpaperPreview;
 @property (nonatomic, strong) UIImage *cutoutPreview;
@@ -30,6 +35,8 @@
     [self setupUI];
     [self resetDiagnosticLog];
     [self logLine:@"App launched."];
+    self.cutoutNormalizedCenter = CGPointMake(0.5, 0.5);
+    self.cutoutScale = 1.0;
     [self loadExistingState];
 }
 
@@ -61,13 +68,21 @@
     self.previewCutoutView.clipsToBounds = YES;
     [self.contentView addSubview:self.previewCutoutView];
 
+    self.previewCutoutView.userInteractionEnabled = YES;
+    self.cutoutPanGesture.delegate = self;
+    self.cutoutPinchGesture.delegate = self;
+    self.cutoutPanGesture = [[UIPanGestureRecognizer alloc] initWithTarget:self action:@selector(handleCutoutPan:)];
+    [self.previewCutoutView addGestureRecognizer:self.cutoutPanGesture];
+    self.cutoutPinchGesture = [[UIPinchGestureRecognizer alloc] initWithTarget:self action:@selector(handleCutoutPinch:)];
+    [self.previewCutoutView addGestureRecognizer:self.cutoutPinchGesture];
+
     self.statusLabel = [[UILabel alloc] init];
     self.statusLabel.translatesAutoresizingMaskIntoConstraints = NO;
     self.statusLabel.numberOfLines = 0;
     self.statusLabel.textAlignment = NSTextAlignmentCenter;
     self.statusLabel.font = [UIFont systemFontOfSize:14.0];
     self.statusLabel.textColor = UIColor.secondaryLabelColor;
-    self.statusLabel.text = @"Chọn hình nền gốc và PNG đã tách nền. Hai ảnh phải cùng kích thước pixel.";
+    self.statusLabel.text = @"Chọn hình nền + PNG đã tách nền. Kích thước không cần giống nhau. Sau đó kéo 1 ngón để di chuyển, chụm 2 ngón để phóng to/thu nhỏ.";
     [self.contentView addSubview:self.statusLabel];
 
     self.wallpaperButton = [self makeButtonWithTitle:@"1. Chọn hình nền gốc" action:@selector(selectWallpaper)];
@@ -83,6 +98,12 @@
     self.cutoutInfoLabel = [self makeInfoLabel];
     self.cutoutInfoLabel.text = @"Chưa chọn ảnh chủ thể";
     [self.contentView addSubview:self.cutoutInfoLabel];
+
+    self.resetCutoutButton = [self makeButtonWithTitle:@"↺ Đặt lại vị trí / kích thước" action:@selector(resetCutoutTransform)];
+    self.resetCutoutButton.backgroundColor = UIColor.tertiarySystemBackgroundColor;
+    [self.resetCutoutButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
+    self.resetCutoutButton.titleLabel.font = [UIFont systemFontOfSize:15.0 weight:UIFontWeightSemibold];
+    [self.contentView addSubview:self.resetCutoutButton];
 
     self.exportLogButton = [self makeButtonWithTitle:@"Xuất log (.txt)" action:@selector(exportLog)];
     self.exportLogButton.backgroundColor = UIColor.secondarySystemBackgroundColor;
@@ -146,7 +167,12 @@
         [self.cutoutInfoLabel.leadingAnchor constraintEqualToAnchor:self.cutoutButton.leadingAnchor],
         [self.cutoutInfoLabel.trailingAnchor constraintEqualToAnchor:self.cutoutButton.trailingAnchor],
 
-        [self.exportLogButton.topAnchor constraintEqualToAnchor:self.cutoutInfoLabel.bottomAnchor constant:14],
+        [self.resetCutoutButton.topAnchor constraintEqualToAnchor:self.cutoutInfoLabel.bottomAnchor constant:10],
+        [self.resetCutoutButton.leadingAnchor constraintEqualToAnchor:self.cutoutButton.leadingAnchor],
+        [self.resetCutoutButton.trailingAnchor constraintEqualToAnchor:self.cutoutButton.trailingAnchor],
+        [self.resetCutoutButton.heightAnchor constraintGreaterThanOrEqualToConstant:44],
+
+        [self.exportLogButton.topAnchor constraintEqualToAnchor:self.resetCutoutButton.bottomAnchor constant:12],
         [self.exportLogButton.leadingAnchor constraintEqualToAnchor:self.cutoutButton.leadingAnchor],
         [self.exportLogButton.trailingAnchor constraintEqualToAnchor:self.cutoutButton.trailingAnchor],
         [self.exportLogButton.heightAnchor constraintGreaterThanOrEqualToConstant:46],
@@ -398,13 +424,16 @@
     if ([mode isEqualToString:@"wallpaper"]) {
         self.wallpaperPreview = image;
         self.wallpaperPixelSize = pixels;
-        self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
+        self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px", pixels.width, pixels.height];
         NSData *saveData = data ?: UIImagePNGRepresentation(image);
         if (saveData) [self saveData:saveData toPath:DWWallpaperImagePath];
     } else {
+        // A newly selected cutout starts centered; the user can then drag/pinch it.
+        self.cutoutNormalizedCenter = CGPointMake(0.5, 0.5);
+        self.cutoutScale = 1.0;
         self.cutoutPreview = image;
         self.cutoutPixelSize = pixels;
-        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"PNG chủ thể: %.0f × %.0f px — giữ nguyên", pixels.width, pixels.height];
+        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"PNG chủ thể: %.0f × %.0f px", pixels.width, pixels.height];
         NSData *saveData = data ?: UIImagePNGRepresentation(image);
         if (saveData) [self saveData:saveData toPath:DWCutoutImagePath];
     }
@@ -428,28 +457,90 @@
 
 - (void)updatePreviewAndState {
     if (self.wallpaperPreview && self.cutoutPreview) {
-        BOOL sameSize = CGSizeEqualToSize(self.wallpaperPixelSize, self.cutoutPixelSize);
-        if (!sameSize) {
-            self.previewCutoutView.image = nil;
-            self.previewBackgroundView.image = self.wallpaperPreview;
-            self.statusLabel.text = [NSString stringWithFormat:@"⚠️ Không khớp kích thước. Nền: %.0f×%.0f — PNG: %.0f×%.0f. Hãy chọn 2 ảnh cùng pixel.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height, self.cutoutPixelSize.width, self.cutoutPixelSize.height];
-            [self saveMetadataWithAspectMatch:NO];
-            return;
-        }
-
         self.previewBackgroundView.image = [self previewImageForDisplay:self.wallpaperPreview maxPixelSize:1024];
         self.previewCutoutView.image = [self previewImageForDisplay:self.cutoutPreview maxPixelSize:1024];
-        self.statusLabel.text = [NSString stringWithFormat:@"✓ Khớp %.0f × %.0f px. Không resize file gốc — preview giảm riêng để tiết kiệm RAM.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
-        [self saveMetadataWithAspectMatch:YES];
+        self.previewCutoutView.hidden = NO;
+        [self applyCutoutTransformAnimated:NO];
+        self.statusLabel.text = [NSString stringWithFormat:@"✓ Đã ghép. Nền %.0f×%.0f px • PNG %.0f×%.0f px. Kéo để di chuyển, chụm để zoom.", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height, self.cutoutPixelSize.width, self.cutoutPixelSize.height];
+        [self saveMetadataWithAspectMatch:NO];
     } else if (self.wallpaperPreview) {
-        self.previewBackgroundView.image = self.wallpaperPreview;
+        self.previewBackgroundView.image = [self previewImageForDisplay:self.wallpaperPreview maxPixelSize:1024];
         self.previewCutoutView.image = nil;
-        self.statusLabel.text = @"Đã chọn hình nền. Bây giờ chọn PNG chủ thể cùng kích thước pixel.";
+        self.statusLabel.text = @"Đã chọn hình nền. Bây giờ chọn PNG chủ thể đã tách nền.";
     } else if (self.cutoutPreview) {
         self.previewBackgroundView.image = nil;
-        self.previewCutoutView.image = self.cutoutPreview;
-        self.statusLabel.text = @"Đã chọn PNG chủ thể. Bây giờ chọn hình nền cùng kích thước pixel.";
+        self.previewCutoutView.image = [self previewImageForDisplay:self.cutoutPreview maxPixelSize:1024];
+        self.statusLabel.text = @"Đã chọn PNG chủ thể. Bạn có thể chọn hình nền với bất kỳ độ phân giải nào.";
     }
+}
+
+- (void)viewDidLayoutSubviews {
+    [super viewDidLayoutSubviews];
+    if (self.wallpaperPreview && self.cutoutPreview) {
+        [self applyCutoutTransformAnimated:NO];
+    }
+}
+
+- (void)handleCutoutPan:(UIPanGestureRecognizer *)gesture {
+    if (!self.cutoutPreview || !self.previewCutoutView.superview) return;
+    CGPoint translation = [gesture translationInView:self.previewBackgroundView];
+    if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
+        CGFloat w = MAX(self.previewBackgroundView.bounds.size.width, 1.0);
+        CGFloat h = MAX(self.previewBackgroundView.bounds.size.height, 1.0);
+        self.cutoutNormalizedCenter = CGPointMake(
+            self.cutoutNormalizedCenter.x + translation.x / w,
+            self.cutoutNormalizedCenter.y + translation.y / h
+        );
+        self.cutoutNormalizedCenter.x = MIN(1.5, MAX(-0.5, self.cutoutNormalizedCenter.x));
+        self.cutoutNormalizedCenter.y = MIN(1.5, MAX(-0.5, self.cutoutNormalizedCenter.y));
+        [gesture setTranslation:CGPointZero inView:self.previewBackgroundView];
+        [self applyCutoutTransformAnimated:NO];
+    } else if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
+        [self persistCutoutTransform];
+    }
+}
+
+- (void)handleCutoutPinch:(UIPinchGestureRecognizer *)gesture {
+    if (!self.cutoutPreview) return;
+    if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
+        self.cutoutScale *= gesture.scale;
+        self.cutoutScale = MIN(4.0, MAX(0.25, self.cutoutScale));
+        gesture.scale = 1.0;
+        [self applyCutoutTransformAnimated:NO];
+    } else if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
+        [self persistCutoutTransform];
+    }
+}
+
+- (void)resetCutoutTransform {
+    self.cutoutNormalizedCenter = CGPointMake(0.5, 0.5);
+    self.cutoutScale = 1.0;
+    [self applyCutoutTransformAnimated:YES];
+    [self persistCutoutTransform];
+}
+
+- (void)applyCutoutTransformAnimated:(BOOL)animated {
+    if (!self.previewCutoutView || self.previewBackgroundView.bounds.size.width <= 0 || self.previewBackgroundView.bounds.size.height <= 0) return;
+    CGPoint center = CGPointMake(self.previewBackgroundView.bounds.size.width * self.cutoutNormalizedCenter.x,
+                                 self.previewBackgroundView.bounds.size.height * self.cutoutNormalizedCenter.y);
+    void (^changes)(void) = ^{
+        self.previewCutoutView.center = center;
+        self.previewCutoutView.transform = CGAffineTransformMakeScale(self.cutoutScale, self.cutoutScale);
+    };
+    if (animated) {
+        [UIView animateWithDuration:0.18 animations:changes];
+    } else {
+        changes();
+    }
+}
+
+- (void)persistCutoutTransform {
+    [self saveMetadataWithAspectMatch:NO];
+}
+
+- (BOOL)gestureRecognizer:(UIGestureRecognizer *)gestureRecognizer shouldRecognizeSimultaneouslyWithGestureRecognizer:(UIGestureRecognizer *)otherGestureRecognizer {
+    return (gestureRecognizer == self.cutoutPanGesture && otherGestureRecognizer == self.cutoutPinchGesture) ||
+           (gestureRecognizer == self.cutoutPinchGesture && otherGestureRecognizer == self.cutoutPanGesture);
 }
 
 - (UIImage *)previewImageForDisplay:(UIImage *)image maxPixelSize:(CGFloat)maxPixelSize {
@@ -474,6 +565,9 @@
 - (void)loadExistingState {
     NSDictionary *meta = [NSDictionary dictionaryWithContentsOfFile:DWMetadataPath];
     self.enabledSwitch.on = meta[DWMetaKeyEnabled] ? [meta[DWMetaKeyEnabled] boolValue] : YES;
+    if (meta[DWMetaKeyCutoutCenterX]) self.cutoutNormalizedCenter = CGPointMake([meta[DWMetaKeyCutoutCenterX] doubleValue], self.cutoutNormalizedCenter.y);
+    if (meta[DWMetaKeyCutoutCenterY]) self.cutoutNormalizedCenter = CGPointMake(self.cutoutNormalizedCenter.x, [meta[DWMetaKeyCutoutCenterY] doubleValue]);
+    if (meta[DWMetaKeyCutoutScale]) self.cutoutScale = MIN(4.0, MAX(0.25, [meta[DWMetaKeyCutoutScale] doubleValue]));
 
     NSData *bgData = [NSData dataWithContentsOfFile:DWWallpaperImagePath options:NSDataReadingMappedIfSafe error:nil];
     NSData *cutData = [NSData dataWithContentsOfFile:DWCutoutImagePath options:NSDataReadingMappedIfSafe error:nil];
@@ -483,12 +577,12 @@
     if (bg.CGImage) {
         self.wallpaperPreview = bg;
         self.wallpaperPixelSize = CGSizeMake(CGImageGetWidth(bg.CGImage), CGImageGetHeight(bg.CGImage));
-        self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px — giữ nguyên", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
+        self.wallpaperInfoLabel.text = [NSString stringWithFormat:@"Hình nền: %.0f × %.0f px", self.wallpaperPixelSize.width, self.wallpaperPixelSize.height];
     }
     if (cut.CGImage) {
         self.cutoutPreview = cut;
         self.cutoutPixelSize = CGSizeMake(CGImageGetWidth(cut.CGImage), CGImageGetHeight(cut.CGImage));
-        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"PNG chủ thể: %.0f × %.0f px — giữ nguyên", self.cutoutPixelSize.width, self.cutoutPixelSize.height];
+        self.cutoutInfoLabel.text = [NSString stringWithFormat:@"PNG chủ thể: %.0f × %.0f px", self.cutoutPixelSize.width, self.cutoutPixelSize.height];
     }
     [self updatePreviewAndState];
 }
@@ -511,6 +605,9 @@
     meta[DWMetaKeyEnabled] = @(self.enabledSwitch.isOn);
     meta[DWMetaKeyAspectMatch] = @(match);
     meta[DWMetaKeyManualFullResolution] = @YES;
+    meta[DWMetaKeyCutoutCenterX] = @(self.cutoutNormalizedCenter.x);
+    meta[DWMetaKeyCutoutCenterY] = @(self.cutoutNormalizedCenter.y);
+    meta[DWMetaKeyCutoutScale] = @(self.cutoutScale);
     if (!CGSizeEqualToSize(self.wallpaperPixelSize, CGSizeZero)) {
         meta[DWMetaKeyWallpaperWidth] = @(self.wallpaperPixelSize.width);
         meta[DWMetaKeyWallpaperHeight] = @(self.wallpaperPixelSize.height);
