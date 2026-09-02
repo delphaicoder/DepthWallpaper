@@ -1,5 +1,5 @@
 /*
- * DepthWallpaper 1.4.7
+ * DepthWallpaper 1.4.9
  *
  * Manual depth overlay for SpringBoard.
  * The cutout is inserted into the Lock Screen view hierarchy, positioned just
@@ -105,50 +105,13 @@ static UIView *DW_FindClockView(UIView *root) {
 }
 
 
-static BOOL DW_ClassNameLooksLikeNotification(UIView *view) {
-    if (!view) return NO;
-    NSString *name = NSStringFromClass(view.class).lowercaseString;
-    return [name containsString:@"notification"] ||
-           [name containsString:@"bulletin"] ||
-           [name containsString:@"ncnotification"] ||
-           [name containsString:@"banner"]; 
-}
-
-static void DW_BringNotificationBranchesAboveHost(UIView *root, UIView *host) {
-    if (!root || !host) return;
-    NSMutableArray<UIView *> *matches = [NSMutableArray array];
-
-    // Iterative traversal avoids a self-referencing block, which older
-    // clang/toolchains can warn about (and this project treats warnings as errors).
-    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
-    while (stack.count > 0) {
-        UIView *view = stack.lastObject;
-        [stack removeLastObject];
-        if (!view) continue;
-        if (DW_ClassNameLooksLikeNotification(view)) {
-            [matches addObject:view];
-        }
-        for (UIView *sub in view.subviews) {
-            if (sub) [stack addObject:sub];
-        }
+static UIView *DW_FindClockBranch(UIView *clock, UIView *root) {
+    if (!clock || !root) return nil;
+    UIView *branch = clock;
+    while (branch.superview && branch.superview != root) {
+        branch = branch.superview;
     }
-
-    for (UIView *match in matches) {
-        UIView *branch = match;
-        while (branch.superview && branch.superview != root) {
-            branch = branch.superview;
-        }
-        if (branch.superview == root && branch != host && branch != host.superview) {
-            [root bringSubviewToFront:branch];
-        }
-
-        // If the notification is a sibling of the host, move that sibling to
-        // the front of the exact parent as well.
-        UIView *parent = match.superview;
-        if (parent && host.superview == parent) {
-            [parent bringSubviewToFront:match];
-        }
-    }
+    return (branch.superview == root) ? branch : nil;
 }
 
 #pragma mark - Overlay manager
@@ -157,8 +120,8 @@ static void DW_BringNotificationBranchesAboveHost(UIView *root, UIView *host) {
 @property (nonatomic, strong) UIView *hostView;
 @property (nonatomic, strong) UIImageView *cutoutView;
 @property (nonatomic, weak) UIView *lockRootView;
-@property (nonatomic, weak) UIView *hostParentView;
-@property (nonatomic, weak) UIView *clockAnchor;
+@property (nonatomic, weak) UIView *clockBranch;
+@property (nonatomic) BOOL attachAttemptScheduled;
 + (instancetype)sharedInstance;
 - (void)setup;
 - (void)attachToLockScreenView:(UIView *)root;
@@ -186,6 +149,7 @@ static dispatch_once_t gDWManagerOnceToken = 0;
     self.hostView.backgroundColor = UIColor.clearColor;
     self.hostView.userInteractionEnabled = NO;
     self.hostView.clipsToBounds = NO;
+    self.hostView.opaque = NO;
     self.hostView.hidden = YES;
 
     self.cutoutView = [[UIImageView alloc] initWithFrame:CGRectZero];
@@ -193,6 +157,7 @@ static dispatch_once_t gDWManagerOnceToken = 0;
     self.cutoutView.userInteractionEnabled = NO;
     self.cutoutView.clipsToBounds = NO;
     self.cutoutView.contentMode = UIViewContentModeScaleAspectFit;
+    self.cutoutView.opaque = NO;
     [self.hostView addSubview:self.cutoutView];
 
     [self reloadImage];
@@ -204,52 +169,42 @@ static dispatch_once_t gDWManagerOnceToken = 0;
 
     self.lockRootView = root;
     UIView *clock = DW_FindClockView(root);
-    UIView *clockParent = clock.superview;
+    UIView *clockBranch = DW_FindClockBranch(clock, root);
 
-    if (!clock || !clockParent) {
-        DW_Log([NSString stringWithFormat:@"attach failed: clock/parent not found root=%@",
+    if (!clock || !clockBranch) {
+        DW_Log([NSString stringWithFormat:@"attach failed: clock/branch not found root=%@",
                 NSStringFromClass(root.class)]);
         return;
     }
 
-    // Keep the overlay physically inside the Lock Screen clock container.
-    // This makes it follow the Lock Screen's own transforms/animations instead
-    // of behaving like an independent high-level window. Notification views
-    // that live above this container naturally occlude the cutout while they
-    // slide in, so the cutout does not paint over notifications.
-    BOOL needsReattach = (self.hostView.superview != clockParent ||
-                          self.hostParentView != clockParent);
-
+    // Keep the cutout as a sibling of the entire clock-containing branch.
+    // This avoids clipping caused by inserting inside a small clock container.
+    // SpringBoard's notification branches can remain above this sibling, so
+    // pulling notifications down naturally occludes the cutout.
+    BOOL needsReattach = (self.hostView.superview != root || self.clockBranch != clockBranch);
     if (needsReattach) {
         [self.hostView removeFromSuperview];
-        [clockParent insertSubview:self.hostView aboveSubview:clock];
-        self.hostParentView = clockParent;
-        self.clockAnchor = clock;
+        [root insertSubview:self.hostView aboveSubview:clockBranch];
+        self.clockBranch = clockBranch;
+    } else {
+        // SpringBoard can reorder its own subviews during layout. Reinsert the
+        // host immediately above the clock branch so the depth ordering stays
+        // deterministic without using a high-level UIWindow.
+        [root insertSubview:self.hostView aboveSubview:clockBranch];
     }
 
+    self.hostView.frame = root.bounds;
     self.hostView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
     self.hostView.clipsToBounds = NO;
 
-    CGRect rootBoundsInParent = [clockParent convertRect:root.bounds fromView:root];
-    self.hostView.frame = clockParent.bounds;
-
-    // Keep the cutout's coordinate system tied to the Lock Screen root while
-    // the containing view follows the clock/lock-screen animation.
-    self.cutoutView.bounds = rootBoundsInParent;
-    self.cutoutView.contentMode = UIViewContentModeScaleAspectFit;
-    self.cutoutView.autoresizingMask = UIViewAutoresizingNone;
-
     [self reloadImage];
-    DW_BringNotificationBranchesAboveHost(root, self.hostView);
+    self.hostView.hidden = (!self.cutoutView.image || !DW_IsUILocked());
 
-    if (DW_IsUILocked()) {
-        self.hostView.hidden = (self.cutoutView.image == nil);
-    }
-
-    DW_Log([NSString stringWithFormat:@"attached to lockscreen parent=%@ clock=%@ root=%@ reattach=%@",
-            NSStringFromClass(clockParent.class), NSStringFromClass(clock.class),
-            NSStringFromClass(root.class), needsReattach ? @"YES" : @"NO"]);
+    DW_Log([NSString stringWithFormat:@"attached above clock branch=%@ root=%@ hostFrame=%@",
+            NSStringFromClass(clockBranch.class), NSStringFromClass(root.class),
+            NSStringFromCGRect(self.hostView.frame)]);
 }
+
 - (void)reloadImage {
     BOOL enabled = YES;
     CGPoint center = CGPointMake(0.5, 0.5);
@@ -257,30 +212,21 @@ static dispatch_once_t gDWManagerOnceToken = 0;
     DW_LoadMetadataValues(&enabled, &center, &scale);
 
     UIImage *image = DW_LoadCutoutImage();
-    DW_Log([NSString stringWithFormat:@"reload enabled=%@ image=%@",
-            enabled ? @"YES" : @"NO", image ? @"YES" : @"NO"]);
+    DW_Log([NSString stringWithFormat:@"reload enabled=%@ image=%@ center=(%.3f,%.3f) scale=%.3f",
+            enabled ? @"YES" : @"NO", image ? @"YES" : @"NO", center.x, center.y, scale]);
 
     if (!self.cutoutView) return;
-    if (!image || !enabled) {
-        self.cutoutView.image = nil;
-        if (!DW_IsUILocked()) self.hostView.hidden = YES;
-        return;
-    }
-
-    self.cutoutView.image = image;
+    self.cutoutView.image = enabled ? image : nil;
 
     UIView *root = self.lockRootView;
-    UIView *parent = self.hostParentView;
-    if (!root || !parent) return;
+    if (!root) return;
 
-    self.hostView.frame = parent.bounds;
-    CGRect rootRectInParent = [parent convertRect:root.bounds fromView:root];
-    self.cutoutView.bounds = rootRectInParent;
+    self.hostView.frame = root.bounds;
+    self.cutoutView.bounds = root.bounds;
 
-    CGPoint rootPoint = CGPointMake(CGRectGetWidth(root.bounds) * center.x,
-                                    CGRectGetHeight(root.bounds) * center.y);
-    CGPoint pointInParent = [parent convertPoint:rootPoint fromView:root];
-    self.cutoutView.center = pointInParent;
+    CGFloat w = CGRectGetWidth(root.bounds);
+    CGFloat h = CGRectGetHeight(root.bounds);
+    self.cutoutView.center = CGPointMake(w * center.x, h * center.y);
     self.cutoutView.transform = CGAffineTransformMakeScale(scale, scale);
     self.cutoutView.contentMode = UIViewContentModeScaleAspectFit;
     self.cutoutView.autoresizingMask = UIViewAutoresizingNone;
@@ -305,7 +251,10 @@ static dispatch_once_t gDWManagerOnceToken = 0;
 
 - (void)scheduleAttachAttempts {
     [self setup];
-    NSArray<NSNumber *> *delays = @[@0.0, @0.016, @0.04, @0.08, @0.12, @0.20, @0.40];
+    if (self.attachAttemptScheduled) return;
+    self.attachAttemptScheduled = YES;
+
+    NSArray<NSNumber *> *delays = @[@0.0, @0.016, @0.04, @0.08, @0.12, @0.20, @0.40, @0.80];
     __weak typeof(self) weakSelf = self;
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
@@ -313,33 +262,32 @@ static dispatch_once_t gDWManagerOnceToken = 0;
             __strong typeof(weakSelf) self = weakSelf;
             if (!self) return;
 
-            // Re-discover the lock-screen controller's visible view without assuming
-            // one particular scene/window.
             Class cls = NSClassFromString(@"SBLockScreenViewController");
+            UIView *candidate = nil;
             if (cls) {
                 for (UIWindow *window in UIApplication.sharedApplication.windows) {
                     UIViewController *vc = window.rootViewController;
                     if ([vc isKindOfClass:cls]) {
-                        [self attachToLockScreenView:vc.view];
-                        return;
-                    }
-                    if ([vc.view isDescendantOfView:window] && vc.view.window == window) {
-                        UIView *candidate = vc.view;
-                        // If this window is a SpringBoard lock-screen window, the
-                        // clock heuristic below will find the right subtree.
-                        if (DW_FindClockView(candidate)) {
-                            [self attachToLockScreenView:candidate];
-                            return;
-                        }
+                        candidate = vc.view;
+                        break;
                     }
                 }
             }
-
-            for (UIWindow *window in UIApplication.sharedApplication.windows) {
-                if (DW_FindClockView(window.rootViewController.view)) {
-                    [self attachToLockScreenView:window.rootViewController.view];
-                    return;
+            if (!candidate) {
+                for (UIWindow *window in UIApplication.sharedApplication.windows) {
+                    UIView *rootView = window.rootViewController.view;
+                    if (DW_FindClockView(rootView)) {
+                        candidate = rootView;
+                        break;
+                    }
                 }
+            }
+            if (candidate) {
+                [self attachToLockScreenView:candidate];
+            }
+
+            if (delay == delays.lastObject) {
+                self.attachAttemptScheduled = NO;
             }
         });
     }
@@ -382,36 +330,28 @@ static void DW_ReloadRequested(CFNotificationCenterRef c, void *o, CFStringRef n
 
 - (void)viewWillAppear:(BOOL)animated {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *lockVC = (UIViewController *)self;
-        [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
-        [[DWManager sharedInstance] scheduleAttachAttempts];
-    });
+    UIViewController *lockVC = (UIViewController *)self;
+    [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
+    [[DWManager sharedInstance] scheduleAttachAttempts];
 }
 
 - (void)viewDidAppear:(BOOL)animated {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *lockVC = (UIViewController *)self;
-        [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
-        [[DWManager sharedInstance] scheduleAttachAttempts];
-    });
+    UIViewController *lockVC = (UIViewController *)self;
+    [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
+    [[DWManager sharedInstance] scheduleAttachAttempts];
 }
 
 - (void)viewWillLayoutSubviews {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *lockVC = (UIViewController *)self;
-        [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
-    });
+    UIViewController *lockVC = (UIViewController *)self;
+    [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
 }
 
 - (void)viewDidLayoutSubviews {
     %orig;
-    dispatch_async(dispatch_get_main_queue(), ^{
-        UIViewController *lockVC = (UIViewController *)self;
-        [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
-    });
+    UIViewController *lockVC = (UIViewController *)self;
+    [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
 }
 
 %end
