@@ -1,5 +1,5 @@
 /*
- * DepthWallpaper 1.5.1
+ * DepthWallpaper 1.5.3
  * Manual PNG depth overlay for the iOS 15 dashboard/Lock Screen.
  *
  * Layering target:
@@ -110,33 +110,20 @@ static UIView *DW_FindNotificationView(UIView *root) {
     return DW_FindFirstView(root, DW_IsNotificationView);
 }
 
-static UIView *DW_FindCommonAncestor(UIView *a, UIView *b, UIView *root) {
-    if (!a || !b) return root;
-    NSMutableSet *ancestors = [NSMutableSet set];
-    for (UIView *v = a; v; v = v.superview) {
-        [ancestors addObject:v];
-        if (v == root) break;
-    }
-    for (UIView *v = b; v; v = v.superview) {
-        if ([ancestors containsObject:v]) return v;
-        if (v == root) break;
-    }
-    return root;
-}
-
-static UIView *DW_ImmediateChild(UIView *descendant, UIView *ancestor) {
-    if (!descendant || !ancestor) return nil;
+// Return the direct child of root that contains descendant.
+static UIView *DW_ImmediateChild(UIView *descendant, UIView *root) {
+    if (!descendant || !root) return nil;
     UIView *v = descendant;
-    while (v.superview && v.superview != ancestor) v = v.superview;
-    return (v.superview == ancestor) ? v : nil;
+    while (v && v.superview && v.superview != root) {
+        v = v.superview;
+    }
+    return (v && v.superview == root) ? v : nil;
 }
 
 @interface DWManager : NSObject
 @property (nonatomic, strong) UIView *hostView;
 @property (nonatomic, strong) UIImageView *cutoutView;
 @property (nonatomic, weak) UIView *dashboardView;
-@property (nonatomic, weak) UIView *layoutContainer;
-@property (nonatomic) BOOL attachRetryScheduled;
 @property (nonatomic) BOOL reattachScheduled;
 + (instancetype)sharedInstance;
 - (void)setup;
@@ -161,6 +148,7 @@ static dispatch_once_t gDWManagerOnce = 0;
 
 - (void)setup {
     if (self.cutoutView) return;
+
     self.hostView = [[UIView alloc] initWithFrame:CGRectZero];
     self.hostView.backgroundColor = UIColor.clearColor;
     self.hostView.opaque = NO;
@@ -175,34 +163,70 @@ static dispatch_once_t gDWManagerOnce = 0;
     self.cutoutView.userInteractionEnabled = NO;
     self.cutoutView.contentMode = UIViewContentModeScaleAspectFit;
     [self.hostView addSubview:self.cutoutView];
+
     [self reloadImage];
 }
 
-- (void)placeHost:(UIView *)container clock:(UIView *)clock notification:(UIView *)notification {
-    UIView *clockChild = DW_ImmediateChild(clock, container);
-    UIView *notificationChild = DW_ImmediateChild(notification, container);
+- (void)updateGeometryForDashboard:(UIView *)dashboard {
+    if (!dashboard || !self.hostView || !self.cutoutView) return;
 
-    if (self.hostView.superview != container) {
+    CGSize size = dashboard.bounds.size;
+    if (size.width <= 1.0 || size.height <= 1.0) return;
+
+    self.hostView.frame = dashboard.bounds;
+    self.hostView.bounds = dashboard.bounds;
+    self.hostView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+
+    BOOL enabled = YES;
+    CGPoint center = CGPointMake(0.5, 0.5);
+    CGFloat scale = 1.0;
+    DW_LoadMetadata(&enabled, &center, &scale);
+
+    self.cutoutView.bounds = (CGRect){ CGPointZero, size };
+    self.cutoutView.center = CGPointMake(size.width * center.x, size.height * center.y);
+    self.cutoutView.transform = CGAffineTransformMakeScale(scale, scale);
+}
+
+// Keep notifications above the depth overlay while keeping the overlay above the clock.
+// We attach to the dashboard root so the overlay is not clipped by the clock's own container.
+- (void)reorderWithinDashboard:(UIView *)dashboard {
+    if (!dashboard || !self.hostView) return;
+
+    UIView *clock = DW_FindClockView(dashboard);
+    UIView *notification = DW_FindNotificationView(dashboard);
+    UIView *clockTop = DW_ImmediateChild(clock, dashboard);
+    UIView *notificationTop = DW_ImmediateChild(notification, dashboard);
+
+    if (self.hostView.superview != dashboard) {
         [self.hostView removeFromSuperview];
-        [container addSubview:self.hostView];
+        [dashboard addSubview:self.hostView];
     }
 
-    NSInteger clockIndex = clockChild ? [container.subviews indexOfObject:clockChild] : NSNotFound;
-    NSInteger notificationIndex = notificationChild ? [container.subviews indexOfObject:notificationChild] : NSNotFound;
-
-    if (clockChild && notificationChild && clockChild != notificationChild) {
-        if (clockIndex != NSNotFound && notificationIndex != NSNotFound && clockIndex < notificationIndex) {
-            [container insertSubview:self.hostView aboveSubview:clockChild];
-            return;
-        }
-        if (notificationIndex != NSNotFound) {
-            [container insertSubview:self.hostView belowSubview:notificationChild];
+    if (clockTop && notificationTop && clockTop != notificationTop) {
+        // Put the overlay above the clock branch, then below the notification branch.
+        NSInteger ci = [dashboard.subviews indexOfObject:clockTop];
+        NSInteger ni = [dashboard.subviews indexOfObject:notificationTop];
+        if (ci != NSNotFound && ni != NSNotFound) {
+            [dashboard insertSubview:self.hostView aboveSubview:clockTop];
+            // Re-evaluate after the first insert; now force it below notifications.
+            [dashboard insertSubview:self.hostView belowSubview:notificationTop];
             return;
         }
     }
 
-    if (clockChild) [container insertSubview:self.hostView aboveSubview:clockChild];
-    else [container addSubview:self.hostView];
+    if (notificationTop) {
+        [dashboard insertSubview:self.hostView belowSubview:notificationTop];
+        return;
+    }
+
+    if (clockTop) {
+        [dashboard insertSubview:self.hostView aboveSubview:clockTop];
+        return;
+    }
+
+    // Final fallback: show the overlay at the back of dashboard if private class names differ.
+    // It is still visible rather than waiting forever for clock discovery.
+    [dashboard insertSubview:self.hostView atIndex:0];
 }
 
 - (void)attachToDashboardView:(UIView *)dashboard {
@@ -210,40 +234,27 @@ static dispatch_once_t gDWManagerOnce = 0;
     [self setup];
     self.dashboardView = dashboard;
 
+    [self updateGeometryForDashboard:dashboard];
+    [self reorderWithinDashboard:dashboard];
+
+    UIImage *image = DW_LoadCutoutImage();
+    BOOL enabled = YES;
+    DW_LoadMetadata(&enabled, NULL, NULL);
+    self.cutoutView.image = enabled ? image : nil;
+    self.hostView.hidden = !(enabled && image && dashboard.window);
+
     UIView *clock = DW_FindClockView(dashboard);
     UIView *notification = DW_FindNotificationView(dashboard);
-    if (!clock) {
-        DW_Log([NSString stringWithFormat:@"attach deferred: clock not found dashboard=%@", NSStringFromClass(dashboard.class)]);
-        return;
-    }
-
-    UIView *container = notification ? DW_FindCommonAncestor(clock, notification, dashboard) : dashboard;
-    if (!container) container = dashboard;
-    self.layoutContainer = container;
-
-    [self placeHost:container clock:clock notification:notification];
-
-    CGRect dashboardFrame = [container convertRect:dashboard.bounds fromView:dashboard];
-    self.hostView.frame = dashboardFrame;
-    self.hostView.bounds = (CGRect){CGPointZero, dashboard.bounds.size};
-    self.hostView.autoresizingMask = UIViewAutoresizingNone;
-    self.hostView.clipsToBounds = NO;
-
-    [self reloadImage];
-    self.hostView.hidden = (self.cutoutView.image == nil);
-
-    UIView *clockChild = DW_ImmediateChild(clock, container);
-    UIView *notificationChild = DW_ImmediateChild(notification, container);
-    NSInteger hostIndex = [container.subviews indexOfObject:self.hostView];
-    NSInteger clockIndex = clockChild ? [container.subviews indexOfObject:clockChild] : NSNotFound;
-    NSInteger notificationIndex = notificationChild ? [container.subviews indexOfObject:notificationChild] : NSNotFound;
-    DW_Log([NSString stringWithFormat:@"attached dashboard=%@ container=%@ clock=%@ notification=%@ idx(host=%ld clock=%ld notification=%ld)",
-            NSStringFromClass(dashboard.class), NSStringFromClass(container.class),
-            NSStringFromClass(clock.class), notification ? NSStringFromClass(notification.class) : @"<none>",
-            (long)hostIndex, (long)clockIndex, (long)notificationIndex]);
+    DW_Log([NSString stringWithFormat:@"attach dashboard=%@ window=%@ image=%@ clock=%@ notification=%@ hostIndex=%ld", 
+            NSStringFromClass(dashboard.class), dashboard.window ? @"YES" : @"NO",
+            image ? @"YES" : @"NO",
+            clock ? NSStringFromClass(clock.class) : @"<none>",
+            notification ? NSStringFromClass(notification.class) : @"<none>",
+            (long)[dashboard.subviews indexOfObject:self.hostView]]);
 }
 
 - (void)reloadImage {
+    [self setup];
     BOOL enabled = YES;
     CGPoint center = CGPointMake(0.5, 0.5);
     CGFloat scale = 1.0;
@@ -252,13 +263,11 @@ static dispatch_once_t gDWManagerOnce = 0;
     self.cutoutView.image = enabled ? image : nil;
 
     UIView *dashboard = self.dashboardView;
-    if (!dashboard || !self.hostView) return;
-
-    CGSize size = dashboard.bounds.size;
-    self.cutoutView.bounds = (CGRect){CGPointZero, size};
-    self.cutoutView.center = CGPointMake(size.width * center.x, size.height * center.y);
-    self.cutoutView.transform = CGAffineTransformMakeScale(scale, scale);
-    self.cutoutView.contentMode = UIViewContentModeScaleAspectFit;
+    if (dashboard) {
+        [self updateGeometryForDashboard:dashboard];
+        [self reorderWithinDashboard:dashboard];
+        self.hostView.hidden = !(enabled && image && dashboard.window);
+    }
 }
 
 - (void)setLocked:(BOOL)locked {
@@ -268,17 +277,13 @@ static dispatch_once_t gDWManagerOnce = 0;
         DW_Log(@"setLocked=NO -> hide");
         return;
     }
-    self.hostView.hidden = YES;
-    DW_Log(@"setLocked=YES -> attach retries");
+    DW_Log(@"setLocked=YES -> attach retries without lock-state gate");
     [self scheduleAttachRetries];
 }
 
 - (void)scheduleAttachRetries {
     [self setup];
-    if (self.attachRetryScheduled) return;
-    self.attachRetryScheduled = YES;
-
-    NSArray<NSNumber *> *delays = @[@0.0, @0.016, @0.04, @0.08, @0.12, @0.20, @0.40, @0.80];
+    NSArray<NSNumber *> *delays = @[@0.0, @0.016, @0.04, @0.08, @0.12, @0.20, @0.40, @0.80, @1.20];
     __weak typeof(self) weakSelf = self;
     for (NSNumber *delay in delays) {
         dispatch_after(dispatch_time(DISPATCH_TIME_NOW, (int64_t)(delay.doubleValue * NSEC_PER_SEC)),
@@ -287,8 +292,9 @@ static dispatch_once_t gDWManagerOnce = 0;
             if (!self) return;
 
             UIView *dashboard = self.dashboardView;
-            if (!dashboard) {
+            if (!dashboard || !dashboard.window) {
                 Class dashboardClass = NSClassFromString(@"SBDashBoardViewController");
+                Class dashboardViewClass = NSClassFromString(@"SBDashBoardView");
                 Class legacyClass = NSClassFromString(@"SBLockScreenViewController");
                 for (UIWindow *window in UIApplication.sharedApplication.windows) {
                     UIViewController *vc = window.rootViewController;
@@ -300,16 +306,21 @@ static dispatch_once_t gDWManagerOnce = 0;
                         dashboard = vc.view;
                         break;
                     }
+                    if (dashboardViewClass && [window isKindOfClass:dashboardViewClass]) {
+                        dashboard = (UIView *)window;
+                        break;
+                    }
                 }
             }
-            if (dashboard) [self attachToDashboardView:dashboard];
-            if (delay == delays.lastObject) self.attachRetryScheduled = NO;
+
+            if (dashboard && dashboard.window) {
+                [self attachToDashboardView:dashboard];
+            }
         });
     }
 }
 
 - (void)scheduleReattach {
-    [self setup];
     if (self.reattachScheduled) return;
     self.reattachScheduled = YES;
     __weak typeof(self) weakSelf = self;
@@ -318,13 +329,21 @@ static dispatch_once_t gDWManagerOnce = 0;
         if (!self) return;
         self.reattachScheduled = NO;
         UIView *dashboard = self.dashboardView;
-        if (dashboard) [self attachToDashboardView:dashboard];
+        if (dashboard && dashboard.window) {
+            [self attachToDashboardView:dashboard];
+        }
     });
 }
 
 @end
 
 static void DW_SetLockedOnMainThread(BOOL locked) {
+    dispatch_async(dispatch_get_main_queue(), ^{
+        [[DWManager sharedInstance] setLocked:locked];
+    });
+}
+
+(BOOL locked) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[DWManager sharedInstance] setLocked:locked];
     });
