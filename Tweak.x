@@ -1,5 +1,5 @@
 /*
- * DepthWallpaper 1.4.9
+ * DepthWallpaper 1.5.0
  *
  * Manual depth overlay for SpringBoard.
  * The cutout is inserted into the Lock Screen view hierarchy, positioned just
@@ -114,6 +114,28 @@ static UIView *DW_FindClockBranch(UIView *clock, UIView *root) {
     return (branch.superview == root) ? branch : nil;
 }
 
+// Pick the smallest ancestor of the clock that can contain the whole lock-screen
+// coordinate space. Keeping the overlay inside the clock's branch means top-level
+// notification/banner branches stay above it.
+static UIView *DW_FindOverlayContainer(UIView *clock, UIView *root) {
+    if (!clock || !root) return nil;
+
+    UIView *candidate = clock.superview;
+    UIView *clockBranch = DW_FindClockBranch(clock, root);
+    UIView *fallback = clockBranch ?: root;
+
+    while (candidate && candidate != root) {
+        CGRect rootInCandidate = [candidate convertRect:root.bounds fromView:root];
+        CGRect expandedBounds = CGRectInset(candidate.bounds, -8.0, -8.0);
+        if (CGRectContainsRect(expandedBounds, rootInCandidate)) {
+            return candidate;
+        }
+        candidate = candidate.superview;
+    }
+
+    return fallback;
+}
+
 #pragma mark - Overlay manager
 
 @interface DWManager : NSObject
@@ -169,40 +191,50 @@ static dispatch_once_t gDWManagerOnceToken = 0;
 
     self.lockRootView = root;
     UIView *clock = DW_FindClockView(root);
+    UIView *container = DW_FindOverlayContainer(clock, root);
     UIView *clockBranch = DW_FindClockBranch(clock, root);
 
-    if (!clock || !clockBranch) {
-        DW_Log([NSString stringWithFormat:@"attach failed: clock/branch not found root=%@",
+    if (!clock || !container) {
+        DW_Log([NSString stringWithFormat:@"attach failed: clock/container not found root=%@",
                 NSStringFromClass(root.class)]);
         return;
     }
 
-    // Keep the cutout as a sibling of the entire clock-containing branch.
-    // This avoids clipping caused by inserting inside a small clock container.
-    // SpringBoard's notification branches can remain above this sibling, so
-    // pulling notifications down naturally occludes the cutout.
-    BOOL needsReattach = (self.hostView.superview != root || self.clockBranch != clockBranch);
-    if (needsReattach) {
+    // Keep the overlay INSIDE the same lock-screen/clock branch rather than on a
+    // separate high-level UIWindow. This is the important z-order fix: notification
+    // branches that SpringBoard owns outside the clock branch remain above the
+    // cutout automatically.
+    if (self.hostView.superview != container) {
         [self.hostView removeFromSuperview];
-        [root insertSubview:self.hostView aboveSubview:clockBranch];
-        self.clockBranch = clockBranch;
-    } else {
-        // SpringBoard can reorder its own subviews during layout. Reinsert the
-        // host immediately above the clock branch so the depth ordering stays
-        // deterministic without using a high-level UIWindow.
-        [root insertSubview:self.hostView aboveSubview:clockBranch];
+        [container addSubview:self.hostView];
     }
 
-    self.hostView.frame = root.bounds;
-    self.hostView.autoresizingMask = UIViewAutoresizingFlexibleWidth | UIViewAutoresizingFlexibleHeight;
+    CGRect rootRectInContainer = [container convertRect:root.bounds fromView:root];
+    self.hostView.frame = rootRectInContainer;
+    self.hostView.bounds = (CGRect){CGPointZero, root.bounds.size};
+    self.hostView.autoresizingMask = UIViewAutoresizingNone;
     self.hostView.clipsToBounds = NO;
 
-    [self reloadImage];
-    self.hostView.hidden = (!self.cutoutView.image || !DW_IsUILocked());
+    // Put the host above the clock itself, but do not raise it above sibling
+    // notification branches in the same Lock Screen hierarchy.
+    NSInteger clockIndex = [container.subviews indexOfObject:clock];
+    if (clockIndex != NSNotFound && clockIndex + 1 < (NSInteger)container.subviews.count) {
+        [container insertSubview:self.hostView aboveSubview:clock];
+    } else {
+        [container bringSubviewToFront:self.hostView];
+    }
 
-    DW_Log([NSString stringWithFormat:@"attached above clock branch=%@ root=%@ hostFrame=%@",
-            NSStringFromClass(clockBranch.class), NSStringFromClass(root.class),
-            NSStringFromCGRect(self.hostView.frame)]);
+    [self reloadImage];
+
+    // Do not gate visibility on isUILocked here. During the lock transition
+    // SpringBoard can report the old state for a short time; the controller hook
+    // itself is our reliable indication that the Lock Screen is being displayed.
+    self.hostView.hidden = (self.cutoutView.image == nil);
+
+    DW_Log([NSString stringWithFormat:@"attached container=%@ clock=%@ branch=%@ frame=%@ subviews=%lu",
+            NSStringFromClass(container.class), NSStringFromClass(clock.class),
+            NSStringFromClass(clockBranch.class), NSStringFromCGRect(self.hostView.frame),
+            (unsigned long)container.subviews.count]);
 }
 
 - (void)reloadImage {
@@ -221,8 +253,11 @@ static dispatch_once_t gDWManagerOnceToken = 0;
     UIView *root = self.lockRootView;
     if (!root) return;
 
-    self.hostView.frame = root.bounds;
-    self.cutoutView.bounds = root.bounds;
+    // hostView's bounds are a root-sized coordinate space even though the view
+    // lives inside the lock-screen clock branch. This preserves the editor's
+    // normalized position while allowing SpringBoard's higher-level notification
+    // views to remain above us.
+    self.cutoutView.bounds = (CGRect){CGPointZero, root.bounds.size};
 
     CGFloat w = CGRectGetWidth(root.bounds);
     CGFloat h = CGRectGetHeight(root.bounds);
