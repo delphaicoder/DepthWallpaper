@@ -203,46 +203,37 @@
     self.wallpaperButton.enabled = NO;
     self.cutoutButton.enabled = NO;
 
-    // Do not request public.png directly. On iOS 15 Photos providers can
-    // advertise an image as PNG while refusing that exact representation.
-    // public.image is much more widely supported. We still validate alpha
-    // for the cutout after decoding the image.
-    NSString *identifier = @"public.image";
-
-    [provider loadDataRepresentationForTypeIdentifier:identifier
-                                    completionHandler:^(NSData *data, NSError *error) {
-        UIImage *image = data ? [UIImage imageWithData:data scale:1.0] : nil;
-
-        // Some providers don't vend data even though they can vend UIImage.
-        // Fall back to loadObject rather than failing the picker operation.
-        if (!image || !image.CGImage) {
-            [provider loadObjectOfClass:[UIImage class]
-                      completionHandler:^(UIImage *fallbackImage, NSError *fallbackError) {
-                dispatch_async(dispatch_get_main_queue(), ^{
-                    self.wallpaperButton.enabled = YES;
-                    self.cutoutButton.enabled = YES;
-
-                    if (!fallbackImage || !fallbackImage.CGImage) {
-                        NSString *message = fallbackError.localizedDescription ?: error.localizedDescription ?: @"Photos không cung cấp dữ liệu ảnh hợp lệ.";
-                        self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", message];
-                        return;
-                    }
-
-                    NSData *fallbackData = UIImagePNGRepresentation(fallbackImage);
-                    [self handleSelectedImage:fallbackImage data:fallbackData mode:mode];
-                });
-            }];
-            return;
-        }
-
+    // IMPORTANT: do not request a concrete file/data representation such as
+    // public.jpeg/public.png here. Some iOS 15 PHPicker providers advertise
+    // those UTIs but reject the requested representation and return
+    // "Cannot load representation of type ...". loadObjectOfClass:UIImage
+    // asks the provider for an image object and is much more robust on iOS 15.
+    [provider loadObjectOfClass:[UIImage class]
+              completionHandler:^(UIImage * _Nullable image, NSError * _Nullable error) {
         dispatch_async(dispatch_get_main_queue(), ^{
             self.wallpaperButton.enabled = YES;
             self.cutoutButton.enabled = YES;
-            [self handleSelectedImage:image data:data mode:mode];
+
+            if (!image || !image.CGImage) {
+                NSString *message = error.localizedDescription ?: @"Photos không cung cấp ảnh hợp lệ.";
+                self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", message];
+                return;
+            }
+
+            // Photos may supply JPEG/HEIC/etc. as UIImage. For the manual
+            // workflow we re-encode to PNG so the selected cutout keeps alpha.
+            // Pixel dimensions are read from the decoded CGImage; no scaling
+            // or cropping is performed by the picker path.
+            NSData *pngData = UIImagePNGRepresentation(image);
+            if (!pngData) {
+                self.statusLabel.text = @"Không thể tạo dữ liệu PNG từ ảnh đã chọn.";
+                return;
+            }
+
+            [self handleSelectedImage:image data:pngData mode:mode];
         });
     }];
 }
-
 - (void)handleSelectedImage:(UIImage *)image data:(NSData *)data mode:(NSString *)mode {
     CGSize pixels = CGSizeMake((CGFloat)CGImageGetWidth(image.CGImage), (CGFloat)CGImageGetHeight(image.CGImage));
 

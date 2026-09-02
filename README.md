@@ -81,3 +81,6 @@ Version 1.2.8: fixed DWManager singleton to use dispatch_once so the tweak does 
 
 
 Version 1.2.8: use NSItemProvider data representation instead of file representation to avoid the iOS 15 Foundation temporary-file clone crash; only the UI preview is downscaled, saved image bytes remain unchanged.
+
+## v1.3.0 PHPicker compatibility
+The app now uses `loadObjectOfClass:UIImage` instead of requesting concrete `public.jpeg`/`public.png` representations. This avoids iOS 15 Photos providers that reject those representations with `Cannot load representation of type ...`.
