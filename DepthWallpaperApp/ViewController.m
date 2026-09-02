@@ -487,12 +487,10 @@
     if (gesture.state == UIGestureRecognizerStateBegan || gesture.state == UIGestureRecognizerStateChanged) {
         CGFloat w = MAX(self.previewBackgroundView.bounds.size.width, 1.0);
         CGFloat h = MAX(self.previewBackgroundView.bounds.size.height, 1.0);
-        self.cutoutNormalizedCenter = CGPointMake(
-            self.cutoutNormalizedCenter.x + translation.x / w,
-            self.cutoutNormalizedCenter.y + translation.y / h
-        );
-        self.cutoutNormalizedCenter.x = MIN(1.5, MAX(-0.5, self.cutoutNormalizedCenter.x));
-        self.cutoutNormalizedCenter.y = MIN(1.5, MAX(-0.5, self.cutoutNormalizedCenter.y));
+        CGPoint center = self.cutoutNormalizedCenter;
+        center.x = MIN(1.5, MAX(-0.5, center.x + translation.x / w));
+        center.y = MIN(1.5, MAX(-0.5, center.y + translation.y / h));
+        self.cutoutNormalizedCenter = center;
         [gesture setTranslation:CGPointZero inView:self.previewBackgroundView];
         [self applyCutoutTransformAnimated:NO];
     } else if (gesture.state == UIGestureRecognizerStateEnded || gesture.state == UIGestureRecognizerStateCancelled) {
