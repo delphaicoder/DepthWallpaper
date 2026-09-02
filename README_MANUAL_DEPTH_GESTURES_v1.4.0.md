@@ -1,4 +1,4 @@
-# DepthWallpaper v1.4.1 — Manual Depth Gestures
+# DepthWallpaper v1.4.2 — Manual Depth Gestures
 
 - No Vision / AI segmentation.
 - Wallpaper and cutout no longer need matching pixel dimensions.

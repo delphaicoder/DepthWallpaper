@@ -25,12 +25,12 @@ static UIImage *DW_LoadCutoutImage(void) {
     return [UIImage imageWithContentsOfFile:DWCutoutImagePath];
 }
 
-static NSDictionary *DW_LoadMetadata(void) {
+static NSDictionary *DW_ReadMetadataDictionary(void) {
     return [NSDictionary dictionaryWithContentsOfFile:DWMetadataPath] ?: @{};
 }
 
-static void DW_LoadMetadata(BOOL *outEnabled, CGPoint *outCenter, CGFloat *outScale) {
-    NSDictionary *meta = DW_LoadMetadata();
+static void DW_LoadMetadataValues(BOOL *outEnabled, CGPoint *outCenter, CGFloat *outScale) {
+    NSDictionary *meta = DW_ReadMetadataDictionary();
     *outEnabled = meta[DWMetaKeyEnabled] ? [meta[DWMetaKeyEnabled] boolValue] : YES;
     CGFloat x = meta[DWMetaKeyCutoutCenterX] ? [meta[DWMetaKeyCutoutCenterX] doubleValue] : 0.5;
     CGFloat y = meta[DWMetaKeyCutoutCenterY] ? [meta[DWMetaKeyCutoutCenterY] doubleValue] : 0.5;
@@ -108,7 +108,7 @@ static dispatch_once_t gDWManagerOnceToken = 0;
     BOOL enabled = YES;
     CGPoint centerRatio = CGPointMake(0.5, 0.5);
     CGFloat scale = 1.0;
-    DW_LoadMetadata(&enabled, &centerRatio, &scale);
+    DW_LoadMetadataValues(&enabled, &centerRatio, &scale);
     UIImage *img = DW_LoadCutoutImage();
 
     if (!img || !enabled || !self.window) {
