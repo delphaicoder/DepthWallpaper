@@ -343,12 +343,6 @@ static void DW_SetLockedOnMainThread(BOOL locked) {
     });
 }
 
-(BOOL locked) {
-    dispatch_async(dispatch_get_main_queue(), ^{
-        [[DWManager sharedInstance] setLocked:locked];
-    });
-}
-
 static void DW_LockStateChanged(CFNotificationCenterRef center, void *observer,
                                 CFStringRef name, const void *object, CFDictionaryRef userInfo) {
     DW_Log(@"darwin lockstate notification");
