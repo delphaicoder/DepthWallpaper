@@ -454,8 +454,9 @@ static void DW_ReloadRequested(CFNotificationCenterRef center, void *observer,
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window) {
-        [[DWManager sharedInstance] attachToClockView:(UIView *)self];
+    UIView *clockView = (UIView *)self;
+    if (clockView.window) {
+        [[DWManager sharedInstance] attachToClockView:clockView];
         [[DWManager sharedInstance] scheduleAttachRetries];
     }
 }
@@ -517,7 +518,8 @@ static void DW_ReloadRequested(CFNotificationCenterRef center, void *observer,
 
 - (void)didMoveToWindow {
     %orig;
-    if (self.window) [[DWManager sharedInstance] scheduleReattach];
+    UIView *notificationView = (UIView *)self;
+    if (notificationView.window) [[DWManager sharedInstance] scheduleReattach];
 }
 
 - (void)layoutSubviews {

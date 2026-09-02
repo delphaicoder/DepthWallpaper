@@ -28,4 +28,4 @@ include $(THEOS_MAKE_PATH)/tweak.mk
 
 
 # No automatic respring: install the package first, then respring manually if needed.
-# DepthWallpaper 1.5.5: attach from SBFLockScreenDateView and order between clock and notifications.
+# DepthWallpaper 1.5.6: attach from SBFLockScreenDateView and order between clock and notifications.
