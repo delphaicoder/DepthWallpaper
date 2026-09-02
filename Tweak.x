@@ -1,5 +1,5 @@
 /*
- * DepthWallpaper 1.4.5
+ * DepthWallpaper 1.4.7
  *
  * Manual depth overlay for SpringBoard.
  * The cutout is inserted into the Lock Screen view hierarchy, positioned just
@@ -125,17 +125,20 @@ static void DW_BringNotificationBranchesAboveHost(UIView *root, UIView *host) {
     if (!root || !host) return;
     NSMutableArray<UIView *> *matches = [NSMutableArray array];
 
-    void (^walk)(UIView *) = ^(UIView *view) {
-        if (!view) return;
+    // Iterative traversal avoids a self-referencing block, which older
+    // clang/toolchains can warn about (and this project treats warnings as errors).
+    NSMutableArray<UIView *> *stack = [NSMutableArray arrayWithObject:root];
+    while (stack.count > 0) {
+        UIView *view = stack.lastObject;
+        [stack removeLastObject];
+        if (!view) continue;
         if (DW_ClassNameLooksLikeNotification(view)) {
             [matches addObject:view];
         }
         for (UIView *sub in view.subviews) {
-            walk(sub);
+            if (sub) [stack addObject:sub];
         }
-    };
-
-    walk(root);
+    }
 
     for (UIView *match in matches) {
         UIView *branch = match;

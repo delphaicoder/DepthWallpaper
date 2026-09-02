@@ -1,4 +1,4 @@
-# DepthWallpaper v1.4.6 — persistent Lock Screen attachment
+# DepthWallpaper v1.4.7 — persistent Lock Screen attachment
 
 - The cutout host is inserted into the Lock Screen clock's own parent container instead of a standalone high-level window.
 - Because the cutout lives in the Lock Screen hierarchy, it follows the same Lock Screen presentation/layout instead of appearing only after notification interaction.
