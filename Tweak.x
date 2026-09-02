@@ -17,12 +17,29 @@
 
 #import <UIKit/UIKit.h>
 #import <dispatch/dispatch.h>
+#import <objc/message.h>
 #import "DWShared.h"
 
 #pragma mark - Doc metadata + anh cutout
 
 static UIImage *DW_LoadCutoutImage(void) {
-    return [UIImage imageWithContentsOfFile:DWCutoutImagePath];
+    UIImage *image = [UIImage imageWithContentsOfFile:DWCutoutImagePath];
+    return image;
+}
+
+static void DW_Log(NSString *message) {
+    if (!message) return;
+    NSString *path = @"/var/mobile/Library/Logs/DepthWallpaperTweak.log";
+    NSString *line = [NSString stringWithFormat:@"%@\n", message];
+    NSData *data = [line dataUsingEncoding:NSUTF8StringEncoding];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [[NSFileManager defaultManager] createFileAtPath:path contents:nil attributes:nil];
+        handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    }
+    [handle seekToEndOfFile];
+    [handle writeData:data];
+    [handle closeFile];
 }
 
 static NSDictionary *DW_ReadMetadataDictionary(void) {
@@ -110,6 +127,7 @@ static dispatch_once_t gDWManagerOnceToken = 0;
     CGFloat scale = 1.0;
     DW_LoadMetadataValues(&enabled, &centerRatio, &scale);
     UIImage *img = DW_LoadCutoutImage();
+    DW_Log([NSString stringWithFormat:@"reloadImage enabled=%@ image=%@ path=%@", enabled ? @"YES" : @"NO", img ? @"YES" : @"NO", DWCutoutImagePath]);
 
     if (!img || !enabled || !self.window) {
         self.cutoutView.image = nil;
@@ -128,23 +146,46 @@ static dispatch_once_t gDWManagerOnceToken = 0;
 }
 
 - (void)setLocked:(BOOL)locked {
-    self.window.hidden = !locked;
-    if (locked) [self reloadImage]; // dam bao luon dung ban moi nhat khi hien ra
+    DW_Log([NSString stringWithFormat:@"setLocked=%@", locked ? @"YES" : @"NO"]);
+    if (!self.window) return;
+    if (locked) {
+        self.window.frame = UIScreen.mainScreen.bounds;
+        [self.window.rootViewController.view setNeedsLayout];
+        [self reloadImage];
+        self.window.hidden = (self.cutoutView.image == nil);
+    } else {
+        self.window.hidden = YES;
+    }
 }
 
 @end
 
 #pragma mark - Phat hien khoa/mo khoa + nhan thong bao reload tu app
 
-static void DW_LockStateChanged(CFNotificationCenterRef c, void *o, CFStringRef name, const void *obj, CFDictionaryRef info) {
-    // Cach don gian, it rui ro de biet may dang khoa hay khong: du lieu duoc bao
-    // ve (Protected Data) CHI san sang khi may dang o trang thai MO KHOA. Day la
-    // API CONG KHAI (khong phai private), dang tin cay hon nhieu so voi viec doan
-    // noi dung cua Darwin notification.
-    BOOL locked = !UIApplication.sharedApplication.isProtectedDataAvailable;
+static void DW_SetLockedOnMainThread(BOOL locked) {
     dispatch_async(dispatch_get_main_queue(), ^{
         [[DWManager sharedInstance] setLocked:locked];
     });
+}
+
+static BOOL DW_IsUILocked(void) {
+    Class cls = NSClassFromString(@"SBLockScreenManager");
+    if (!cls) return NO;
+    id manager = nil;
+    SEL sharedSel = NSSelectorFromString(@"sharedInstance");
+    SEL lockedSel = NSSelectorFromString(@"isUILocked");
+    if ([cls respondsToSelector:sharedSel]) {
+        id (*sendShared)(id, SEL) = (id (*)(id, SEL))objc_msgSend;
+        manager = sendShared(cls, sharedSel);
+    }
+    if (!manager || ![manager respondsToSelector:lockedSel]) return NO;
+    BOOL (*sendLocked)(id, SEL) = (BOOL (*)(id, SEL))objc_msgSend;
+    return sendLocked(manager, lockedSel);
+}
+
+static void DW_LockStateChanged(CFNotificationCenterRef c, void *o, CFStringRef name, const void *obj, CFDictionaryRef info) {
+    // Fallback notification. Prefer SBLockScreenManager's isUILocked below.
+    DW_SetLockedOnMainThread(DW_IsUILocked());
 }
 
 static void DW_ReloadRequested(CFNotificationCenterRef c, void *o, CFStringRef name, const void *obj, CFDictionaryRef info) {
@@ -153,12 +194,26 @@ static void DW_ReloadRequested(CFNotificationCenterRef c, void *o, CFStringRef n
     });
 }
 
+%hook SBLockScreenManager
+
+- (void)lockUIFromSource:(int)source withOptions:(id)options {
+    %orig;
+    DW_SetLockedOnMainThread(YES);
+}
+
+- (void)unlockUIFromSource:(int)source withOptions:(id)options {
+    %orig;
+    DW_SetLockedOnMainThread(NO);
+}
+
+%end
+
 %hook SpringBoard
 - (void)applicationDidFinishLaunching:(id)application {
     %orig;
     [[DWManager sharedInstance] setup];
 
-    // Lang nghe ca 2 su kien lien quan bao ve du lieu (khoa/mo khoa deu di qua day).
+    // Lang nghe lock/unlock notification nhu fallback; lock state chinh duoc lay tu SBLockScreenManager.
     CFNotificationCenterAddObserver(CFNotificationCenterGetDarwinNotifyCenter(), NULL,
         DW_LockStateChanged, CFSTR("com.apple.springboard.lockstate"), NULL,
         CFNotificationSuspensionBehaviorCoalesce);
@@ -169,6 +224,6 @@ static void DW_ReloadRequested(CFNotificationCenterRef c, void *o, CFStringRef n
 
     // Xac dinh trang thai KHOA/MO ban dau ngay luc khoi dong, phong khi
     // notification chua kip bắn lan nao.
-    [[DWManager sharedInstance] setLocked:!UIApplication.sharedApplication.isProtectedDataAvailable];
+    [[DWManager sharedInstance] setLocked:DW_IsUILocked()];
 }
 %end

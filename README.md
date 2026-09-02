@@ -84,3 +84,7 @@ Version 1.2.8: use NSItemProvider data representation instead of file representa
 
 ## v1.3.0 PHPicker compatibility
 The app now uses `loadObjectOfClass:UIImage` instead of requesting concrete `public.jpeg`/`public.png` representations. This avoids iOS 15 Photos providers that reject those representations with `Cannot load representation of type ...`.
+
+## v1.4.3
+- Lock-state uses SBLockScreenManager isUILocked instead of isProtectedDataAvailable.
+- Added lightweight tweak diagnostic log at /var/mobile/Library/Logs/DepthWallpaperTweak.log.
