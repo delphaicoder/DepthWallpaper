@@ -1,5 +1,5 @@
 /*
- * DepthWallpaper 1.4.4
+ * DepthWallpaper 1.4.5
  *
  * Manual depth overlay for SpringBoard.
  * The cutout is inserted into the Lock Screen view hierarchy, positioned just
@@ -307,7 +307,8 @@ static void DW_ReloadRequested(CFNotificationCenterRef c, void *o, CFStringRef n
     %orig;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (DW_IsUILocked()) {
-            [[DWManager sharedInstance] attachToLockScreenView:self.view];
+            UIViewController *lockVC = (UIViewController *)self;
+            [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
         }
     });
 }
@@ -316,7 +317,8 @@ static void DW_ReloadRequested(CFNotificationCenterRef c, void *o, CFStringRef n
     %orig;
     dispatch_async(dispatch_get_main_queue(), ^{
         if (DW_IsUILocked()) {
-            [[DWManager sharedInstance] attachToLockScreenView:self.view];
+            UIViewController *lockVC = (UIViewController *)self;
+            [[DWManager sharedInstance] attachToLockScreenView:lockVC.view];
         }
     });
 }
