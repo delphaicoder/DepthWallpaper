@@ -104,13 +104,6 @@ static UIView *DW_FindClockView(UIView *root) {
     return nil;
 }
 
-static UIView *DW_TopChildUnderRoot(UIView *view, UIView *root) {
-    UIView *current = view;
-    while (current.superview && current.superview != root) {
-        current = current.superview;
-    }
-    return (current.superview == root) ? current : nil;
-}
 
 static BOOL DW_ClassNameLooksLikeNotification(UIView *view) {
     if (!view) return NO;
