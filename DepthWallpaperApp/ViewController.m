@@ -199,44 +199,46 @@
 
     NSItemProvider *provider = result.itemProvider;
     NSString *mode = [self.pickerMode copy];
-    self.statusLabel.text = [mode isEqualToString:@"cutout"] ? @"Đang đọc PNG chủ thể..." : @"Đang đọc hình nền...";
+    self.statusLabel.text = [mode isEqualToString:@"cutout"] ? @"Đang đọc ảnh chủ thể..." : @"Đang đọc hình nền...";
     self.wallpaperButton.enabled = NO;
     self.cutoutButton.enabled = NO;
 
-    // DA SUA: bo cach cu (loadDataRepresentationForTypeIdentifier voi dinh danh
-    // UTI cu the nhu "public.png"/"public.image") vi hay bao loi "Cannot load
-    // representation of type ..." — dinh dang THAT SU cua anh trong thu vien
-    // (PHAsset) khong phai luc nao cung khop dung voi chuoi dinh danh minh doan,
-    // dac biet voi anh HEIC/JPEG hoac anh tu iCloud. Dung loadObjectOfClass:
-    // thay the — de HE THONG tu lo viec giai ma bat ke dinh dang goc la gi, dang
-    // tin cay hon nhieu va la cach duoc Apple khuyen dung cho truong hop nay.
-    if (![provider canLoadObjectOfClass:[UIImage class]]) {
+    // Do not request public.png directly. On iOS 15 Photos providers can
+    // advertise an image as PNG while refusing that exact representation.
+    // public.image is much more widely supported. We still validate alpha
+    // for the cutout after decoding the image.
+    NSString *identifier = @"public.image";
+
+    [provider loadDataRepresentationForTypeIdentifier:identifier
+                                    completionHandler:^(NSData *data, NSError *error) {
+        UIImage *image = data ? [UIImage imageWithData:data scale:1.0] : nil;
+
+        // Some providers don't vend data even though they can vend UIImage.
+        // Fall back to loadObject rather than failing the picker operation.
+        if (!image || !image.CGImage) {
+            [provider loadObjectOfClass:[UIImage class]
+                      completionHandler:^(UIImage *fallbackImage, NSError *fallbackError) {
+                dispatch_async(dispatch_get_main_queue(), ^{
+                    self.wallpaperButton.enabled = YES;
+                    self.cutoutButton.enabled = YES;
+
+                    if (!fallbackImage || !fallbackImage.CGImage) {
+                        NSString *message = fallbackError.localizedDescription ?: error.localizedDescription ?: @"Photos không cung cấp dữ liệu ảnh hợp lệ.";
+                        self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", message];
+                        return;
+                    }
+
+                    NSData *fallbackData = UIImagePNGRepresentation(fallbackImage);
+                    [self handleSelectedImage:fallbackImage data:fallbackData mode:mode];
+                });
+            }];
+            return;
+        }
+
         dispatch_async(dispatch_get_main_queue(), ^{
             self.wallpaperButton.enabled = YES;
             self.cutoutButton.enabled = YES;
-            self.statusLabel.text = @"Anh nay khong the doc duoc (dinh dang khong ho tro).";
-        });
-        return;
-    }
-
-    [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage * _Nullable loadedImage, NSError * _Nullable error) {
-        dispatch_async(dispatch_get_main_queue(), ^{
-            self.wallpaperButton.enabled = YES;
-            self.cutoutButton.enabled = YES;
-
-            UIImage *image = [loadedImage isKindOfClass:[UIImage class]] ? loadedImage : nil;
-            if (!image || !image.CGImage) {
-                self.statusLabel.text = [NSString stringWithFormat:
-                    @"Không đọc được ảnh: %@",
-                    error.localizedDescription ?: @"Photos không cung cấp dữ liệu ảnh hợp lệ."];
-                return;
-            }
-
-            // Luon tu ma hoa lai thanh PNG truoc khi luu — dam bao giu dung kenh
-            // alpha (trong suot) neu anh goc co, khong phu thuoc vao dinh dang
-            // file that su ma he thong da giai ma tu (JPEG/HEIC/PNG deu duoc).
-            NSData *pngData = UIImagePNGRepresentation(image);
-            [self handleSelectedImage:image data:pngData mode:mode];
+            [self handleSelectedImage:image data:data mode:mode];
         });
     }];
 }
