@@ -7,7 +7,7 @@ include $(THEOS)/makefiles/common.mk
 # ==== App chon anh + manual full-resolution depth ====
 APPLICATION_NAME = DepthWallpaperApp
 DepthWallpaperApp_FILES = DepthWallpaperApp/main.m DepthWallpaperApp/AppDelegate.m DepthWallpaperApp/SceneDelegate.m DepthWallpaperApp/ViewController.m
-DepthWallpaperApp_FRAMEWORKS = UIKit Foundation PhotosUI
+DepthWallpaperApp_FRAMEWORKS = UIKit Foundation PhotosUI Photos
 DepthWallpaperApp_CFLAGS = -fobjc-arc -Wno-deprecated-declarations
 DepthWallpaperApp_INSTALL_PATH = /Applications
 DepthWallpaperApp_BUNDLE_NAME = DepthWallpaper

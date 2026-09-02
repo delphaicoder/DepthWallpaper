@@ -10,6 +10,7 @@
 @property (nonatomic, strong) UILabel *statusLabel;
 @property (nonatomic, strong) UIButton *wallpaperButton;
 @property (nonatomic, strong) UIButton *cutoutButton;
+@property (nonatomic, strong) UIButton *exportLogButton;
 @property (nonatomic, strong) UISwitch *enabledSwitch;
 @property (nonatomic, strong) UILabel *wallpaperInfoLabel;
 @property (nonatomic, strong) UILabel *cutoutInfoLabel;
@@ -27,6 +28,8 @@
     self.title = @"Depth Wallpaper";
     self.view.backgroundColor = UIColor.systemBackgroundColor;
     [self setupUI];
+    [self resetDiagnosticLog];
+    [self logLine:@"App launched."];
     [self loadExistingState];
 }
 
@@ -80,6 +83,12 @@
     self.cutoutInfoLabel = [self makeInfoLabel];
     self.cutoutInfoLabel.text = @"Chưa chọn ảnh chủ thể";
     [self.contentView addSubview:self.cutoutInfoLabel];
+
+    self.exportLogButton = [self makeButtonWithTitle:@"Xuất log (.txt)" action:@selector(exportLog)];
+    self.exportLogButton.backgroundColor = UIColor.secondarySystemBackgroundColor;
+    [self.exportLogButton setTitleColor:UIColor.labelColor forState:UIControlStateNormal];
+    self.exportLogButton.titleLabel.font = [UIFont systemFontOfSize:16.0 weight:UIFontWeightSemibold];
+    [self.contentView addSubview:self.exportLogButton];
 
     UILabel *enabledLabel = [self makeInfoLabel];
     enabledLabel.text = @"Bật hiệu ứng chiều sâu";
@@ -137,7 +146,12 @@
         [self.cutoutInfoLabel.leadingAnchor constraintEqualToAnchor:self.cutoutButton.leadingAnchor],
         [self.cutoutInfoLabel.trailingAnchor constraintEqualToAnchor:self.cutoutButton.trailingAnchor],
 
-        [enabledLabel.topAnchor constraintEqualToAnchor:self.cutoutInfoLabel.bottomAnchor constant:18],
+        [self.exportLogButton.topAnchor constraintEqualToAnchor:self.cutoutInfoLabel.bottomAnchor constant:14],
+        [self.exportLogButton.leadingAnchor constraintEqualToAnchor:self.cutoutButton.leadingAnchor],
+        [self.exportLogButton.trailingAnchor constraintEqualToAnchor:self.cutoutButton.trailingAnchor],
+        [self.exportLogButton.heightAnchor constraintGreaterThanOrEqualToConstant:46],
+
+        [enabledLabel.topAnchor constraintEqualToAnchor:self.exportLogButton.bottomAnchor constant:18],
         [enabledLabel.leadingAnchor constraintEqualToAnchor:self.contentView.leadingAnchor constant:24],
         [self.enabledSwitch.centerYAnchor constraintEqualToAnchor:enabledLabel.centerYAnchor],
         [self.enabledSwitch.trailingAnchor constraintEqualToAnchor:self.contentView.trailingAnchor constant:-24],
@@ -171,6 +185,54 @@
 - (UIInterfaceOrientationMask)supportedInterfaceOrientations { return UIInterfaceOrientationMaskAll; }
 - (UIInterfaceOrientation)preferredInterfaceOrientationForPresentation { return UIInterfaceOrientationLandscapeLeft; }
 
+
+#pragma mark - Diagnostics
+
+- (NSString *)diagnosticLogPath {
+    NSArray<NSURL *> *urls = [[NSFileManager defaultManager] URLsForDirectory:NSDocumentDirectory inDomains:NSUserDomainMask];
+    NSURL *documentsURL = urls.firstObject;
+    if (!documentsURL) return nil;
+    return [[documentsURL URLByAppendingPathComponent:@"DepthWallpaperPicker.log.txt"] path];
+}
+
+- (void)logLine:(NSString *)line {
+    NSString *path = [self diagnosticLogPath];
+    if (!path || line.length == 0) return;
+
+    NSString *entry = [NSString stringWithFormat:@"%@ | %@\n", [[NSDate date] descriptionWithLocale:nil], line];
+    NSData *data = [entry dataUsingEncoding:NSUTF8StringEncoding];
+    NSFileHandle *handle = [NSFileHandle fileHandleForWritingAtPath:path];
+    if (!handle) {
+        [data writeToFile:path atomically:YES];
+        return;
+    }
+    @try {
+        [handle seekToEndOfFile];
+        [handle writeData:data];
+        [handle closeFile];
+    } @catch (__unused NSException *exception) {
+        [handle closeFile];
+    }
+}
+
+- (void)resetDiagnosticLog {
+    NSString *path = [self diagnosticLogPath];
+    if (!path) return;
+    NSString *header = [NSString stringWithFormat:@"DepthWallpaper diagnostic log\nApp version: %@\niOS: %@\nDevice: %@\n\n", [[NSBundle mainBundle] objectForInfoDictionaryKey:@"CFBundleShortVersionString"] ?: @"unknown", UIDevice.currentDevice.systemVersion ?: @"unknown", UIDevice.currentDevice.model ?: @"unknown"];
+    [header writeToFile:path atomically:YES encoding:NSUTF8StringEncoding error:nil];
+}
+
+- (void)exportLog {
+    NSString *path = [self diagnosticLogPath];
+    if (!path) return;
+    [self logLine:@"User requested diagnostic log export."];
+
+    UIActivityViewController *share = [[UIActivityViewController alloc] initWithActivityItems:@[[NSURL fileURLWithPath:path]] applicationActivities:nil];
+    share.popoverPresentationController.sourceView = self.exportLogButton;
+    share.popoverPresentationController.sourceRect = self.exportLogButton.bounds;
+    [self presentViewController:share animated:YES completion:nil];
+}
+
 #pragma mark - Picker
 
 - (void)selectWallpaper {
@@ -187,6 +249,10 @@
     PHPickerConfiguration *configuration = [[PHPickerConfiguration alloc] initWithPhotoLibrary:PHPhotoLibrary.sharedPhotoLibrary];
     configuration.filter = [PHPickerFilter imagesFilter];
     configuration.selectionLimit = 1;
+    if (@available(iOS 14.0, *)) {
+        configuration.preferredAssetRepresentationMode = PHPickerConfigurationAssetRepresentationModeCurrent;
+    }
+    [self logLine:[NSString stringWithFormat:@"Presenting PHPicker. authorization=%ld", (long)[PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelReadWrite]]];
     PHPickerViewController *picker = [[PHPickerViewController alloc] initWithConfiguration:configuration];
     picker.delegate = self;
     [self presentViewController:picker animated:YES completion:nil];
@@ -194,46 +260,131 @@
 
 - (void)picker:(PHPickerViewController *)picker didFinishPicking:(NSArray<PHPickerResult *> *)results {
     [picker dismissViewControllerAnimated:YES completion:nil];
+
     PHPickerResult *result = results.firstObject;
-    if (!result) return;
+    NSString *mode = [self.pickerMode copy];
+    [self logLine:[NSString stringWithFormat:@"Picker finished: mode=%@ resultCount=%lu", mode ?: @"unknown", (unsigned long)results.count]];
+
+    if (!result) {
+        [self logLine:@"Picker cancelled or returned no result."];
+        return;
+    }
 
     NSItemProvider *provider = result.itemProvider;
-    NSString *mode = [self.pickerMode copy];
+    [self logLine:[NSString stringWithFormat:@"assetIdentifier=%@ registeredTypes=%@", result.assetIdentifier ?: @"(nil)", provider.registeredTypeIdentifiers ?: @[]]];
+
     self.statusLabel.text = [mode isEqualToString:@"cutout"] ? @"Đang đọc ảnh chủ thể..." : @"Đang đọc hình nền...";
     self.wallpaperButton.enabled = NO;
     self.cutoutButton.enabled = NO;
+    self.exportLogButton.enabled = NO;
 
-    // IMPORTANT: do not request a concrete file/data representation such as
-    // public.jpeg/public.png here. Some iOS 15 PHPicker providers advertise
-    // those UTIs but reject the requested representation and return
-    // "Cannot load representation of type ...". loadObjectOfClass:UIImage
-    // asks the provider for an image object and is much more robust on iOS 15.
-    [provider loadObjectOfClass:[UIImage class]
-              completionHandler:^(UIImage * _Nullable image, NSError * _Nullable error) {
+    NSString *assetIdentifier = result.assetIdentifier;
+    void (^finishWithImageData)(NSData *, NSString *, CGImagePropertyOrientation, NSDictionary *) = ^(NSData *imageData, NSString *dataUTI, CGImagePropertyOrientation orientation, NSDictionary *info) {
+        BOOL degraded = [info[PHImageResultIsDegradedKey] boolValue];
+        BOOL cancelled = [info[PHImageCancelledKey] boolValue];
+        NSError *error = info[PHImageErrorKey];
+        [self logLine:[NSString stringWithFormat:@"PHImage result: bytes=%lu UTI=%@ orientation=%u degraded=%@ cancelled=%@ error=%@ info=%@", (unsigned long)imageData.length, dataUTI ?: @"(nil)", (unsigned)orientation, degraded ? @"YES" : @"NO", cancelled ? @"YES" : @"NO", error ?: @"(none)", info ?: @{}]];
+
+        if (degraded || cancelled) return;
+
         dispatch_async(dispatch_get_main_queue(), ^{
             self.wallpaperButton.enabled = YES;
             self.cutoutButton.enabled = YES;
+            self.exportLogButton.enabled = YES;
 
+            if (error || imageData.length == 0) {
+                NSString *message = error.localizedDescription ?: @"Photos không trả về dữ liệu ảnh.";
+                [self logLine:[NSString stringWithFormat:@"PHAsset image-data request failed: %@", message]];
+                self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", message];
+                return;
+            }
+
+            UIImage *image = [UIImage imageWithData:imageData scale:1.0];
+            if (!image || !image.CGImage) {
+                [self logLine:@"UIImage decoding failed even though PHImage returned data."];
+                self.statusLabel.text = @"Không giải mã được dữ liệu ảnh.";
+                return;
+            }
+
+            [self logLine:[NSString stringWithFormat:@"Decoded image: %.0fx%.0f alphaInfo=%d", (CGFloat)CGImageGetWidth(image.CGImage), (CGFloat)CGImageGetHeight(image.CGImage), (int)CGImageGetAlphaInfo(image.CGImage)]];
+            [self handleSelectedImage:image data:imageData mode:mode];
+        });
+    };
+
+    if (assetIdentifier.length > 0) {
+        PHAuthorizationStatus auth = [PHPhotoLibrary authorizationStatusForAccessLevel:PHAccessLevelReadWrite];
+        [self logLine:[NSString stringWithFormat:@"Photo authorization before asset fetch: %ld", (long)auth]];
+
+        void (^fetchAndRequest)(void) = ^{
+            PHFetchResult<PHAsset *> *assets = [PHAsset fetchAssetsWithLocalIdentifiers:@[assetIdentifier] options:nil];
+            PHAsset *asset = assets.firstObject;
+            if (!asset) {
+                [self logLine:@"PHAsset fetch returned no asset."];
+                return;
+            }
+
+            [self logLine:[NSString stringWithFormat:@"PHAsset found: pixel=%ldx%ld mediaType=%ld subtype=%lu", (long)asset.pixelWidth, (long)asset.pixelHeight, (long)asset.mediaType, (unsigned long)asset.mediaSubtypes]];
+            PHImageRequestOptions *options = [[PHImageRequestOptions alloc] init];
+            options.version = PHImageRequestOptionsVersionOriginal;
+            options.deliveryMode = PHImageRequestOptionsDeliveryModeHighQualityFormat;
+            options.resizeMode = PHImageRequestOptionsResizeModeNone;
+            options.networkAccessAllowed = YES;
+
+            [[PHImageManager defaultManager] requestImageDataAndOrientationForAsset:asset options:options resultHandler:finishWithImageData];
+        };
+
+        if (auth == PHAuthorizationStatusNotDetermined) {
+            [self logLine:@"Requesting Photos read/write authorization before PHAsset fetch."];
+            [PHPhotoLibrary requestAuthorizationForAccessLevel:PHAccessLevelReadWrite handler:^(PHAuthorizationStatus newStatus) {
+                [self logLine:[NSString stringWithFormat:@"Photos authorization result: %ld", (long)newStatus]];
+                if (newStatus == PHAuthorizationStatusAuthorized || newStatus == PHAuthorizationStatusLimited) {
+                    dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), fetchAndRequest);
+                } else {
+                    dispatch_async(dispatch_get_main_queue(), ^{
+                        self.wallpaperButton.enabled = YES;
+                        self.cutoutButton.enabled = YES;
+                        self.exportLogButton.enabled = YES;
+                        self.statusLabel.text = @"Chưa được cấp quyền đọc ảnh. Bấm Xuất log (.txt) để xem chi tiết.";
+                    });
+                }
+            }];
+        } else if (auth == PHAuthorizationStatusAuthorized || auth == PHAuthorizationStatusLimited) {
+            dispatch_async(dispatch_get_global_queue(QOS_CLASS_USER_INITIATED, 0), fetchAndRequest);
+        } else {
+            [self logLine:@"Photos authorization is denied/restricted; skipping PHAsset path."];
+            dispatch_async(dispatch_get_main_queue(), ^{
+                self.wallpaperButton.enabled = YES;
+                self.cutoutButton.enabled = YES;
+                self.exportLogButton.enabled = YES;
+                self.statusLabel.text = @"Ứng dụng chưa có quyền đọc ảnh. Hãy cho phép Photos trong Cài đặt rồi thử lại.";
+            });
+        }
+        return;
+    }
+
+    [self logLine:@"PHPicker did not provide an assetIdentifier. Falling back to provider loadObjectOfClass:UIImage."];
+    [provider loadObjectOfClass:[UIImage class] completionHandler:^(UIImage * _Nullable image, NSError * _Nullable error) {
+        [self logLine:[NSString stringWithFormat:@"Provider fallback result: image=%@ errorDomain=%@ code=%ld description=%@ userInfo=%@", image ? @"YES" : @"NO", error.domain ?: @"(nil)", (long)error.code, error.localizedDescription ?: @"(none)", error.userInfo ?: @{}]];
+        dispatch_async(dispatch_get_main_queue(), ^{
+            self.wallpaperButton.enabled = YES;
+            self.cutoutButton.enabled = YES;
+            self.exportLogButton.enabled = YES;
             if (!image || !image.CGImage) {
                 NSString *message = error.localizedDescription ?: @"Photos không cung cấp ảnh hợp lệ.";
                 self.statusLabel.text = [NSString stringWithFormat:@"Không đọc được ảnh: %@", message];
                 return;
             }
-
-            // Photos may supply JPEG/HEIC/etc. as UIImage. For the manual
-            // workflow we re-encode to PNG so the selected cutout keeps alpha.
-            // Pixel dimensions are read from the decoded CGImage; no scaling
-            // or cropping is performed by the picker path.
             NSData *pngData = UIImagePNGRepresentation(image);
             if (!pngData) {
-                self.statusLabel.text = @"Không thể tạo dữ liệu PNG từ ảnh đã chọn.";
+                [self logLine:@"Provider UIImage -> PNG conversion failed."];
+                self.statusLabel.text = @"Không thể tạo dữ liệu ảnh.";
                 return;
             }
-
             [self handleSelectedImage:image data:pngData mode:mode];
         });
     }];
 }
+
 - (void)handleSelectedImage:(UIImage *)image data:(NSData *)data mode:(NSString *)mode {
     CGSize pixels = CGSizeMake((CGFloat)CGImageGetWidth(image.CGImage), (CGFloat)CGImageGetHeight(image.CGImage));
 
@@ -349,7 +500,9 @@
 - (void)saveData:(NSData *)data toPath:(NSString *)path {
     if (!data) return;
     [self ensureSharedDirectoryExists];
-    [data writeToFile:path options:NSDataWritingAtomic error:nil];
+    NSError *error = nil;
+    BOOL ok = [data writeToFile:path options:NSDataWritingAtomic error:&error];
+    [self logLine:[NSString stringWithFormat:@"saveData path=%@ bytes=%lu success=%@ error=%@", path ?: @"(nil)", (unsigned long)data.length, ok ? @"YES" : @"NO", error ?: @"(none)"]];
 }
 
 - (void)saveMetadataWithAspectMatch:(BOOL)match {
