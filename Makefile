@@ -26,4 +26,6 @@ DepthWallpaperTweak_CFLAGS = -fobjc-arc -Wno-deprecated-declarations -x objectiv
 
 include $(THEOS_MAKE_PATH)/tweak.mk
 
+
 # No automatic respring: install the package first, then respring manually if needed.
+# DepthWallpaper 1.5.1: use dashboard view hierarchy for iOS 15 notification-safe ordering.
