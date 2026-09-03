@@ -88,3 +88,8 @@ The app now uses `loadObjectOfClass:UIImage` instead of requesting concrete `pub
 ## v1.4.3
 - Lock-state uses SBLockScreenManager isUILocked instead of isProtectedDataAvailable.
 - Added lightweight tweak diagnostic log at /var/mobile/Library/Logs/DepthWallpaperTweak.log.
+
+
+## v1.5.7 Planned Features
+
+See `FEATURES_v1.5.7.md` for the new preset system, options panel, logging export, and experimental lock screen widget layer.
